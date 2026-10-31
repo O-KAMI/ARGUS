@@ -118,3 +118,6 @@ console.log(`tally: ${JSON.stringify(tally)}`);
 console.log(`after:  ${JSON.stringify(after)}`);
 console.log(`elapsed: ${Math.round((Date.now() - started) / 1000)}s`);
 await closeDb();
+// Other handles (provider sockets, timers) outlive closeDb, so without this the process sits idle for
+// hours after printing its tally and reads like a run still in progress.
+process.exit(tally.failed > 0 ? 1 : 0);
