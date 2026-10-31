@@ -1,0 +1,19 @@
+{
+  "name": "@aihot/github",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    "./module": "./module.ts",
+    "./server": "./server.ts",
+    "./web": "./web.tsx",
+    "./*": "./*.ts"
+  },
+  "dependencies": {
+    "@aihot/backend": "*",
+    "@aihot/contracts": "*",
+    "@aihot/site": "*",
+    "@aihot/web": "*",
+    "cheerio": "1.2.0"
+  }
+}

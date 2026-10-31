@@ -3,7 +3,10 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./*": "./app/*.ts"
+    "./*": [
+      "./app/*.ts",
+      "./app/*.tsx"
+    ]
   },
   "scripts": {
     "dev": "react-router dev --port 3000 --host 127.0.0.1",
