@@ -10,7 +10,7 @@ import { ITEM_COPY } from "@aihot/site";
 import { SameEventBadge, SelectedBadge } from "../../components/ui/Badge";
 import { ScoreLabel } from "../../components/ui/Score";
 import { beijingTime } from "@aihot/contracts/time";
-import { MediaThumbs, SourceLine, StarButton, readTone } from "./parts";
+import { MediaThumbs, OriginalLink, SourceLine, StarButton, readTone } from "./parts";
 import { GroupButton, GroupSources } from "./ReadingGroup";
 import { QuotedLine } from "../item/QuotedPost";
 import { rememberPreview } from "../item/preview";
@@ -51,6 +51,7 @@ export const FeedItem = memo(function FeedItem({ item, group, filters, read = fa
           </span>
         )}
         <span className="ml-auto flex shrink-0 items-center gap-1 pl-2 lg:gap-1.5">
+          <OriginalLink item={item} className="-my-[11px] size-11 lg:-my-1 lg:size-[26px]" />
           <span className="hidden lg:inline-flex">
             <ScoreLabel score={item.score} />
           </span>

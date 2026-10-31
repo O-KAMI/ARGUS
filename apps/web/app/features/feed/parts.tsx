@@ -1,7 +1,7 @@
 // Small building blocks shared by feed items, detail pages and lists.
 import { useState } from "react";
 import type { FeedItemSummary, MediaView } from "@aihot/contracts/site";
-import { IconBookmark } from "../../components/icons";
+import { IconBookmark, IconExternal } from "../../components/icons";
 import { SourceAvatar } from "../../components/ui/SourceAvatar";
 import { Lightbox } from "../../components/ui/Lightbox";
 import { toggleStar, useIsStarred } from "../../lib/local-state";
@@ -21,6 +21,29 @@ export function SourceLine({ item, className = "" }: { item: Pick<FeedItemSummar
     );
   }
   return <span className={`min-w-0 truncate ${className}`}>{item.source.name}</span>;
+}
+
+/**
+ * The way out to the article itself. A card carries our summary, so it also carries the original: the
+ * reader must be able to leave without opening the detail page first. `relative z-10` keeps it clickable
+ * above the card-wide link that covers the rest of the surface.
+ */
+export function OriginalLink({ item, className = "" }: { item: Pick<FeedItemSummary, "links">; className?: string }) {
+  const href = item.links?.original;
+  if (!href) return null;
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      title="在新标签页打开原文"
+      aria-label={`打开原文：${href}`}
+      onClick={(event) => event.stopPropagation()}
+      className={`relative z-10 inline-grid shrink-0 place-items-center rounded-control text-ink-4 transition-colors hover:bg-bg-sunk hover:text-accent ${className}`}
+    >
+      <IconExternal size={14} />
+    </a>
+  );
 }
 
 /** Up to four media thumbnails, kept small in lists (the detail page shows them larger). Videos are stills. */

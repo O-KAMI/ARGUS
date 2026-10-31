@@ -1,7 +1,7 @@
 import { Link } from "react-router";
 import type { FeedItemSummary, HotEntryView, HotResponse, MediaView, TimelineCard, TimelineResponse, TopicSummary, TopicsResponse } from "@aihot/contracts/site";
 import { CATEGORY_LABELS } from "@aihot/contracts/taxonomy";
-import { beijingDate } from "@aihot/contracts/time";
+import { beijingDate, beijingEnglishDate } from "@aihot/contracts/time";
 import { IntentLink } from "../../components/ui/IntentLink";
 import { EmptyState } from "../../components/ui/Page";
 import { SourceAvatar } from "../../components/ui/SourceAvatar";
@@ -9,7 +9,7 @@ import { IconBookmark, IconChart, IconChevronRight, IconFlame } from "../../comp
 import { INK, InkIcon, type InkIconName } from "../../components/ink";
 import { Faces } from "../hot/Faces";
 import { Sparkline } from "../hot/Sparkline";
-import { SourceLine, StarButton } from "../feed/parts";
+import { OriginalLink, SourceLine, StarButton } from "../feed/parts";
 import { relativeTime } from "../../lib/format";
 import { dailyQuote } from "./daily-quote";
 import { useUnreadOnly } from "../../lib/local-state";
@@ -30,9 +30,7 @@ function dateParts() {
   const now = new Date();
   const day = beijingDate(now.getTime());
   const [year, month, date] = day.split("-");
-  const parts = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Shanghai", weekday: "short", month: "short" }).formatToParts(now);
-  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? "";
-  return { day, year, month, date, english: `${part("weekday")} ${part("month")} ${year}` };
+  return { day, year, month, date, english: beijingEnglishDate(now) };
 }
 
 function DateCard() {
@@ -189,7 +187,8 @@ function SelectedCard({ card }: { card: TimelineCard }) {
           <div className="relative z-10 mt-auto flex items-end gap-1 pt-2 text-[12px] text-ink-4">
             <SourceLine item={item} className="max-w-[45%]" />
             {item.publishedAt && <span className="shrink-0">· {relativeTime(item.publishedAt)}</span>}
-            <StarButton item={item} className="ml-auto size-7" />
+            <OriginalLink item={item} className="ml-auto size-7" />
+            <StarButton item={item} className="size-7" />
           </div>
         </div>
       </div>

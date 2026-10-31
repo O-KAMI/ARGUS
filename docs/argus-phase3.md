@@ -6,7 +6,7 @@
 
 - `packages/backend/src/publication/hot.ts` 新增 `loadImportantAnnouncements`：只读已公开、已精选、已发布且 `first_party` 的内容，按发布时间倒序，最多 6 条。
 - `HotResponse.announcements` 为新契约字段；`loadHot` 并行读取排名与公告，无排名时仍返回公告。
-- `apps/web/app/routes/hot.tsx` 单独成区展示，文案写明“已精选的一手官方发布，按发布时间排列，不参与跨源讨论热度排名”，公告没有 heat/rank；桌面标题的持续 ping 已移除。
+- `apps/web/app/routes/hot.tsx` 单独成区展示，文案写明“一手官方发布，以及本站关注账号近三天转述的公告；按发布时间排列，不参与跨源讨论热度排名”（`loadImportantAnnouncements` 有两条分支：`first_party` 的精选，与近三天被判为 `news_like` 的学习轨条目；本部署 44 个 X 源 `first_party` 全为 false，所以实际供稿的是第二条），公告没有 heat/rank；桌面标题的持续 ping 已移除。
 - 验证：`tests/publication.test.ts` 24/24；`apps/web/tests/cache.test.ts` 公告 SSR 专项；`page-width.test.ts` 布局断言；系统 Chrome 桌面/手机截图 `light-*-hot-announcements-7.png`。
 
 ## 2. 日报迁移到上海自然日

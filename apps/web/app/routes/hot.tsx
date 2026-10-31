@@ -10,6 +10,7 @@ import { Badge } from "../components/ui/Badge";
 import { EmptyState } from "../components/ui/Page";
 import { IconChevronDown, IconInfo } from "../components/icons";
 import { Sparkline } from "../features/hot/Sparkline";
+import { OriginalLink } from "../features/feed/parts";
 import { Faces } from "../features/hot/Faces";
 import { Delta } from "../features/hot/Delta";
 import { PhoneBar } from "../components/shell/PhoneBar";
@@ -28,7 +29,7 @@ export async function loader({ request }: { request: Request }) {
 export function meta() {
   return pageMeta({
     title: withSubject("热点榜"),
-    description: `${subjectAfter("过去 48 小时", "圈")}跨源讨论热度，以及已精选的一手官方重要公告。`,
+    description: `${subjectAfter("过去 48 小时", "圈")}跨源讨论热度，以及一手官方发布与关注账号近三天转述的重要公告。`,
     path: "/hot",
     image: "/og/pages/hot.png",
   });
@@ -235,9 +236,9 @@ function Announcements({ items }: { items: ImportantAnnouncement[] }) {
       <div className="mb-3 px-1">
         <div className="flex items-center gap-2">
           <h2 id="important-announcements" className="text-[18px] font-bold text-ink">重要公告</h2>
-          <Badge tone="accent">官方一手</Badge>
+          <Badge tone="accent">不参与排名</Badge>
         </div>
-        <p className="mt-1 text-[12.5px] leading-relaxed text-ink-4">已精选的一手官方发布，按发布时间排列，不参与跨源讨论热度排名。</p>
+        <p className="mt-1 text-[12.5px] leading-relaxed text-ink-4">一手官方发布，以及本站关注账号近三天转述的公告；按发布时间排列，不参与跨源讨论热度排名。</p>
       </div>
       <ul className="card divide-y divide-line-soft overflow-hidden">
         {items.map((item) => (
@@ -246,6 +247,7 @@ function Announcements({ items }: { items: ImportantAnnouncement[] }) {
               <span className="font-medium text-ink-3">{item.source.name}</span>
               <span aria-hidden="true">·</span>
               <time dateTime={item.publishedAt ?? item.timelineAt}>{monthDayTime(item.publishedAt ?? item.timelineAt)}</time>
+              <OriginalLink item={item} className="-my-2 ml-auto size-9 sm:-my-1 sm:size-7" />
             </div>
             <h3 className="mt-1.5 text-[15.5px] font-[650] leading-[1.55] text-ink">
               <IntentLink viewTransition to={`/items/${item.id}`} className="transition-colors after:absolute after:inset-0 after:content-[''] group-hover:text-accent">
@@ -359,7 +361,7 @@ export default function HotPage() {
           </span>
         </summary>
         <div className="max-w-[760px] space-y-2 pb-2 pl-[21px] pt-2 leading-[1.75] text-ink-3">
-          <p>热点榜按跨源讨论热度排序；重要公告只列已精选的一手官方发布，按发布时间排列，不参与排名，也没有热度值。</p>
+          <p>热点榜按跨源讨论热度排序；重要公告列的是一手官方发布，加上本站关注账号近三天里转述的公告，按发布时间排列，不参与排名，也没有热度值。</p>
           <p>热度看的是有多少账号和机构在讨论同一件事：同一家重复发只算一次，越近的讨论分量越重，每过 24 小时减半。它反映讨论有多热闹，不代表报道质量。</p>
           <p>榜单只看过去 48 小时。走势只拿同一批一直在看的来源比较，反映的是我们看得到的范围，不代表全网人数；没有可比的历史时，不画走势线。</p>
           <p>

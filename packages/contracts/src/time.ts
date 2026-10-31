@@ -34,6 +34,19 @@ export const beijingDay = (instant: Date | string | number) => monthDay(beijingD
 /** "9月29日 13:40" in Beijing time. */
 export const beijingStamp = (instant: Date | string | number) => `${beijingDay(instant)} ${beijingTime(instant)}`;
 
+/**
+ * "Mon Sep 2026": the English weekday, month and year of the Beijing calendar date, as the home page's date card
+ * writes them under its own month and day. The zone is settled by beijingDate, so what is formatted here is a
+ * plain calendar day and no second conversion can disagree with it.
+ */
+export function beijingEnglishDate(instant: Date | string | number): string {
+  const date = beijingDate(instant);
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", weekday: "short", month: "short" })
+    .formatToParts(new Date(`${date}T12:00:00Z`));
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? "";
+  return `${part("weekday")} ${part("month")} ${date.slice(0, 4)}`;
+}
+
 /** The zone's name, for whatever takes one (a scheduler, a report's metadata, SQL `AT TIME ZONE`). */
 export const BEIJING_TIMEZONE = "Asia/Shanghai" as const;
 
