@@ -14,7 +14,7 @@ import { describePublicationTime } from "../sources/dates.ts";
 import { z } from "zod";
 import { CATEGORY_KEYS } from "@aihot/contracts/taxonomy";
 import { CATEGORIES } from "@aihot/industry/taxonomy";
-import { SELECTION } from "@aihot/industry/selection";
+import { LEARNING_KINDS, SELECTION, trackOf, type LearningKind, type LearningLevel, type Track } from "@aihot/industry/selection";
 import { ITEM_COPY } from "@aihot/site";
 import { sql } from "../db.ts";
 import { chatJson, MODELS, type ContentPart } from "../providers/llm.ts";
@@ -39,14 +39,26 @@ export { buildMaterial, loadAnalyzeInput, type AnalyzeInputArticle };
 export const PROMPT_VERSIONS = {
   prefilter: promptVersion("prefilter"),
   score: promptVersion("selection-score"),
+  scoreLearning: promptVersion("selection-score-learning"),
   understand: promptVersion("understand"),
   summarize: promptVersion("summarize-article", "summarize-article-empty", "summarize-short-post", "summarize-short-post-quoted", "summarize-long-post", "summarize-long-post-quoted", "identity-context"),
   structure: promptVersion("structure"),
   wording: promptVersion("mend-wording"),
 } as const;
+
+/** Which wording a judgement was produced under, per track, in the order the versions are concatenated. */
+export function analyzePromptVersion(track: Track): string {
+  const { prefilter, score, scoreLearning, understand, summarize, structure, wording } = PROMPT_VERSIONS;
+  return [prefilter, track === "learning" ? scoreLearning : score, understand, summarize, structure, wording].join("+");
+}
+
+export function selectionPromptVersion(track: Track): string {
+  return [PROMPT_VERSIONS.prefilter, track === "learning" ? PROMPT_VERSIONS.scoreLearning : PROMPT_VERSIONS.score].join("+");
+}
+
 /** Every step's prompt, as stored on each judgement. */
-export const SELECTION_PROMPT_VERSION = [PROMPT_VERSIONS.prefilter, PROMPT_VERSIONS.score].join("+");
-export const ANALYZE_PROMPT_VERSION = Object.values(PROMPT_VERSIONS).join("+");
+export const SELECTION_PROMPT_VERSION = selectionPromptVersion("news");
+export const ANALYZE_PROMPT_VERSION = analyzePromptVersion("news");
 
 // Scoring
 
@@ -61,6 +73,16 @@ export function tierThreshold(tier: string): number | null {
   return SELECTION.thresholds[tier] ?? null;
 }
 
+/**
+ * The threshold a judgement is held against. Tiers without one (EXCLUDE_MP and anything unlisted) are
+ * never scored on either track: that safety boundary does not move. `inherit` is never scored either —
+ * a mirrored source takes its selection from upstream and must not spend model calls here.
+ */
+export function trackThreshold(track: Track, tier: string): number | null {
+  if (track === "inherit" || SELECTION.thresholds[tier] === undefined) return null;
+  return track === "learning" ? SELECTION.learning.threshold : SELECTION.thresholds[tier];
+}
+
 /** Unselected items above this mean are written like selected ones. */
 export const UNDERSTAND_FLOOR = SELECTION.understandFloor;
 
@@ -70,7 +92,29 @@ const scoreCall = (model: string) => MODELS[model]?.scoreCall ?? { temperature: 
 /** The score prompt: the industry's taste (industry/prompts/selection-score.md). */
 export const SCORE_SYSTEM = promptText("selection-score");
 
+/**
+ * The learning track's own wording, in its own file. It cannot be `{{track}}` inside one file:
+ * promptVersion hashes file contents only, so two different wordings would share one version number
+ * and a receipt could no longer say which of them produced a result.
+ */
+export const SCORE_LEARNING_SYSTEM = promptText("selection-score-learning");
+
+export function scoreSystem(track: Track): string {
+  return track === "learning" ? SCORE_LEARNING_SYSTEM : SCORE_SYSTEM;
+}
+
 export const ScoreSchema = z.object({ attentionScore: z.coerce.number().int().min(0).max(100) });
+
+/** The learning track answers with a level, not a number; `SELECTION.learning.levels` maps it back onto the same score machinery. */
+export const LearningScoreSchema = z.object({
+  level: z.preprocess((v) => String(v ?? "").trim().toLowerCase(), z.enum(["hit", "edge", "miss"])),
+  kinds: z.array(z.string()).max(6).catch([]),
+});
+
+/** Only kinds the vocabulary knows: the model does not get to extend the list. */
+function knownKinds(raw: readonly string[]): LearningKind[] {
+  return [...new Set(raw.filter((k): k is LearningKind => (LEARNING_KINDS as readonly string[]).includes(k)))].slice(0, 3);
+}
 
 const SCORE_TIME = new Intl.DateTimeFormat("sv-SE", {
   timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
@@ -195,7 +239,7 @@ export interface AnalysisRun {
    * The independent score calls and the tier threshold they are held against; absent when the material
    * is not scored. `refused`: the model's content filter declined it, so it is not selected.
    */
-  scores: { model: string; threshold: number; values: number[]; receiptIds: number[]; reused: boolean; refused?: boolean } | null;
+  scores: { model: string; threshold: number; values: number[]; receiptIds: number[]; reused: boolean; refused?: boolean; kinds?: LearningKind[] } | null;
   /** The reader-facing copy: `understand` (selected, near-selected), `summarize`, `verbatim` (a Chinese short post), `none`. */
   writing: {
     kind: "understand" | "summarize" | "verbatim" | "none";
@@ -267,6 +311,7 @@ export async function runSelectionPrefilter(
 
 async function runScores(
   a: AnalyzeInputArticle,
+  track: Track,
   threshold: number,
   opts: StepOpts,
   onReceipt?: ReceiptObserver,
@@ -274,6 +319,12 @@ async function runScores(
   const model = opts.scoreModel ?? (await modelFor("score"));
   const call = scoreCall(model);
   const input = buildScoreInput(a);
+  const params = {
+    model, purpose: "score_article" as const, subject: subjectOf(a), system: scoreSystem(track), user: input,
+    promptVersion: track === "learning" ? PROMPT_VERSIONS.scoreLearning : PROMPT_VERSIONS.score,
+    temperature: call.temperature, maxTokens: call.maxTokens, timeoutMs: call.timeoutMs,
+  };
+  let kinds: LearningKind[] = [];
   const values: number[] = [];
   const receiptIds: number[] = [];
   let reused = true;
@@ -281,16 +332,24 @@ async function runScores(
   for (let i = 0; i < SCORE_CALLS; i++) {
     checkAnalysisRunning();
     try {
-      const res = await chatJson({
-        model, purpose: "score_article", subject: subjectOf(a), promptVersion: PROMPT_VERSIONS.score, system: SCORE_SYSTEM, user: input,
-        schema: ScoreSchema, temperature: call.temperature, maxTokens: call.maxTokens, timeoutMs: call.timeoutMs,
-        // Each call is its own paid request; an explicit re-evaluation gets new ones.
-        attemptTag: tagged(opts.attemptTag, `score-${i + 1}`),
-      });
-      onReceipt?.(res.receiptId);
-      values.push(res.data.attentionScore);
-      receiptIds.push(res.receiptId);
-      reused &&= res.reused;
+      // Each call is its own paid request; an explicit re-evaluation gets new ones.
+      const attemptTag = tagged(opts.attemptTag, `score-${i + 1}`);
+      if (track === "learning") {
+        const res = await chatJson({ ...params, attemptTag, schema: LearningScoreSchema });
+        onReceipt?.(res.receiptId);
+        // The level is mapped onto a score here, so "two independent calls, sum >= 2 x threshold" and the
+        // mean shown on the card stay exactly the machinery the news track already uses.
+        values.push(SELECTION.learning.levels[res.data.level as LearningLevel]);
+        if (i === 0) kinds = knownKinds(res.data.kinds);
+        receiptIds.push(res.receiptId);
+        reused &&= res.reused;
+      } else {
+        const res = await chatJson({ ...params, attemptTag, schema: ScoreSchema });
+        onReceipt?.(res.receiptId);
+        values.push(res.data.attentionScore);
+        receiptIds.push(res.receiptId);
+        reused &&= res.reused;
+      }
     } catch (error) {
       const receiptId = failedReceiptId(error);
       if (receiptId !== null) onReceipt?.(receiptId);
@@ -299,7 +358,7 @@ async function runScores(
       throw error;
     }
   }
-  return { model, threshold, values, receiptIds, reused };
+  return track === "learning" ? { model, threshold, values, receiptIds, reused, kinds } : { model, threshold, values, receiptIds, reused };
 }
 
 /** The production score step; its threshold stays case-specific even when an evaluator shares model output. */
@@ -308,8 +367,8 @@ export async function runSelectionScores(
   opts: StepOpts = {},
   onReceipt?: ReceiptObserver,
 ): Promise<AnalysisRun["scores"]> {
-  const threshold = tierThreshold(a.source.tier);
-  return threshold === null ? null : runScores(a, threshold, opts, onReceipt);
+  const threshold = trackThreshold(trackOf(a.source.tags), a.source.tier);
+  return threshold === null ? null : runScores(a, trackOf(a.source.tags), threshold, opts, onReceipt);
 }
 
 export async function runStructure(a: AnalyzeInputArticle, opts: StepOpts = {}): Promise<NonNullable<AnalysisRun["structure"]>> {
@@ -511,6 +570,7 @@ export function normalizeAnalysis(run: AnalysisRun) {
   const score = shownScore(run.scores);
   const threshold = run.scores?.threshold ?? null;
   const selected = relevance === "pass" && scoresSelect(run.scores);
+  const kinds = run.scores?.kinds ?? [];
   const subjects = run.structure?.subjects ?? [];
   const tags = [...(run.structure?.tags ?? [])];
   for (const s of subjects) {
@@ -525,6 +585,7 @@ export function normalizeAnalysis(run: AnalysisRun) {
     scoreModel: run.scores?.model ?? null,
     scoreRefused: run.scores?.refused ?? false,
     threshold,
+    kinds,
     category: run.structure?.category ?? null,
     tags,
     subjects,
@@ -565,6 +626,7 @@ export async function analyzeArticle(articleId: string, opts: StepOpts = {}): Pr
   const detail = {
     prefilter: run.prefilter && { label: run.prefilter.label, reason: run.prefilter.reason },
     scores: out.scores, scoreModel: out.scoreModel, threshold: out.threshold, ...(out.scoreRefused ? { scoreRefused: true } : {}),
+    ...(out.kinds.length ? { learningKinds: out.kinds } : {}),
     ...(w ? { writer: w.kind, writerModel: w.model, itemType: w.itemType ?? null, authorRole: w.authorRole ?? null } : {}),
     ...(w?.identityGuard?.outcome === "fallback" ? { identityGuard: w.identityGuard } : {}),
     scope: out.scope, fact: out.fact,
@@ -575,7 +637,7 @@ export async function analyzeArticle(articleId: string, opts: StepOpts = {}): Pr
     const [row] = await tx<{ id: number }[]>`
       INSERT INTO analyses (article_id, input_revision, origin, model, prompt_version, receipt_ids, relevance, category, tags,
         subjects, title_zh, summary_zh, reason_zh, score, selected, output)
-      VALUES (${articleId}, ${input.revision}, 'model', ${w?.model ?? run.prefilter?.model ?? null}, ${ANALYZE_PROMPT_VERSION}, ${receiptIds},
+      VALUES (${articleId}, ${input.revision}, 'model', ${w?.model ?? run.prefilter?.model ?? null}, ${analyzePromptVersion(trackOf(input.source.tags))}, ${receiptIds},
         ${out.relevance}, ${out.category}, ${out.tags}, ${out.subjects}, ${out.titleZh}, ${out.summaryZh}, ${out.reasonZh},
         ${out.score}, ${out.selected}, ${tx.json(detail as never)})
       RETURNING id`;

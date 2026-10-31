@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { monthDay } from "@aihot/contracts/time";
 import { monthDay as pageMonthDay, monthDayTime } from "../app/lib/format.ts";
+import { DAILY_QUOTES, dailyQuote } from "../app/features/home/daily-quote.ts";
 
 test("a day of today's year has no year; another year's carries it", () => {
   assert.equal(monthDay("2026-10-05", "2026-10-19"), "10月5日");
@@ -36,4 +37,13 @@ test("the year turns at Beijing midnight, whatever the clock it is read on", () 
   assert.equal(pageMonthDay("2027-01-01", lastHalfHour), "2027年1月1日");
   assert.equal(pageMonthDay("2026-12-31", firstHalfHour), "2026年12月31日");
   assert.equal(pageMonthDay("2027-01-01", firstHalfHour), "1月1日");
+});
+
+test("the date card's quotation turns with the Beijing day and always names its work", () => {
+  const today = dailyQuote("2026-10-30");
+  assert.equal(dailyQuote("2026-10-30"), today, "one day keeps one line");
+  assert.notEqual(dailyQuote("2026-10-31"), today, "the next day reads another line");
+  assert.notEqual(dailyQuote("2026-12-31"), dailyQuote("2027-01-01"), "the year boundary turns too");
+  assert.ok(DAILY_QUOTES.includes(dailyQuote("2028-02-29")), "a leap day stays inside the list");
+  for (const quote of DAILY_QUOTES) assert.ok(quote.text.trim().length > 0 && quote.source.includes("《"), quote.source);
 });

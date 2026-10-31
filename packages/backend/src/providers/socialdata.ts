@@ -26,6 +26,8 @@ export interface SdTweet {
   in_reply_to_screen_name?: string | null;
   quoted_status?: SdTweet | null;
   retweeted_status?: SdTweet | null;
+  /** Set when the post arrived through a repost in the timeline (FxTwitter): the account that reposted it. */
+  reposted_by?: SdUser | null;
   is_quote_status?: boolean;
   entities?: { urls?: Array<{ url: string; expanded_url: string }>; media?: SdMedia[] };
   extended_entities?: { media?: SdMedia[] };

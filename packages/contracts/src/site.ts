@@ -1,6 +1,6 @@
 // First-party site API (/api/site/*). Not a public API: it may evolve with the website,
 // but it is served from the same public read layer as v1, RSS and MCP.
-import type { CategoryKey, ChannelKey } from "./taxonomy.ts";
+import type { CategoryKey, ChannelKey, PlatformKey } from "./taxonomy.ts";
 import { isoWeekRange, monthDay } from "./time.ts";
 
 export interface SourceRef {
@@ -29,6 +29,8 @@ export interface XPostView {
   translation: string | null;
   /** translation: Chinese translation of the quoted post, when it is in another language. */
   quoted: { authorName: string; handle: string; text: string; url: string; translation: string | null } | null;
+  /** The followed account that reposted this post; null for the account's own posts. */
+  repostedBy: { authorName: string; handle: string; url: string } | null;
   media: MediaView[];
 }
 
@@ -58,7 +60,9 @@ export interface ItemSummary {
 }
 
 /** The fields rendered by a site feed card; full original text lives in the item detail. */
-export interface FeedItemSummary extends Pick<ItemSummary, "id" | "title" | "summary" | "reason" | "source" | "publishedAt" | "timelineAt" | "category" | "tags" | "score" | "selected" | "channel"> {
+export interface FeedItemSummary extends Pick<ItemSummary, "id" | "title" | "summary" | "reason" | "source" | "links" | "publishedAt" | "timelineAt" | "category" | "tags" | "score" | "selected" | "channel"> {
+  /** The first usable article/video cover; X posts keep their media in x. */
+  cover?: MediaView | null;
   x: (Pick<XPostView, "authorName" | "handle" | "avatarUrl" | "avatarSrcSet" | "media"> & {
     quoted: Omit<NonNullable<XPostView["quoted"]>, "url"> | null;
   }) | null;
@@ -104,6 +108,12 @@ export interface TimelineFilters {
   channel: ChannelKey;
   category: CategoryKey | null;
   tag: string | null;
+  /** Content type (a genre tag): 教程/实践, 模型发布, 大佬观点, … */
+  genre?: string | null;
+  /** Technical direction (a topic tag): Agent, 编码, 推理, … */
+  field?: string | null;
+  /** Where the report came from: X, 行业镜像, YouTube, Bilibili, 公众号, GitHub, 知识星球 or an ordinary website/RSS. */
+  platform?: PlatformKey;
 }
 
 export interface TimelineResponse {
@@ -203,10 +213,22 @@ export interface HotEntryView {
   cover: { url: string; srcSet?: string; width: number | null; height: number | null } | null;
 }
 
+export interface ImportantAnnouncement {
+  id: string;
+  title: string;
+  summary: string | null;
+  source: SourceRef;
+  links: { original: string };
+  publishedAt: string | null;
+  timelineAt: string;
+}
+
 export interface HotResponse {
   computedAt: string | null;
   windowHours: number;
   entries: HotEntryView[];
+  /** Selected first-party reports, separate from cross-source heat and ranking. */
+  announcements: ImportantAnnouncement[];
 }
 
 export interface HeatPoint {
@@ -308,6 +330,9 @@ export interface ReportDetail {
   issueNumber: number;
   title: string;
   generatedAt: string;
+  /** The issue's saved [start, end) coverage window; historical issues keep their original boundaries. */
+  windowStart: string;
+  windowEnd: string;
   lead: { title: string; leadParagraph: string } | null;
   /** The still-public item the front page leads with (its headline links there). */
   leadItemId: string | null;

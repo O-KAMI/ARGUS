@@ -127,21 +127,22 @@
     },
     {
       "slug": "agent",
-      "name": "Agent 智能体",
+      "name": "Agent / Skills / MCP",
       "group": "field",
       "tags": [
-        "Agent"
+        "Agent",
+        "MCP/工具调用"
       ],
-      "definition": "能自己拆解任务、调用工具、一步步把事办完的 AI 智能体：Claude Code、Manus 等应用，各家 Agent 框架与评测。"
+      "definition": "能自己拆解任务、调用工具、一步步把事办完的 AI 智能体：Agent 框架、Skills、MCP 工具生态与评测。"
     },
     {
       "slug": "coding",
-      "name": "AI 编码",
+      "name": "Vibe Coding / AI 编程",
       "group": "field",
       "tags": [
         "编码"
       ],
-      "definition": "用 AI 写代码：编程助手、Vibe Coding、代码模型评测，以及开发方式的变化。"
+      "definition": "用 AI 写代码：编程助手、Vibe Coding、代码模型与 Agent 编程评测，以及开发方式的变化。"
     },
     {
       "slug": "reasoning",
@@ -160,6 +161,15 @@
         "多模态"
       ],
       "definition": "文字之外的能力：看懂图片、图文混合理解、音视频输入输出的模型与产品进展。"
+    },
+    {
+      "slug": "design",
+      "name": "UI/UX 与 AI 设计",
+      "group": "field",
+      "tags": [
+        "设计/交互"
+      ],
+      "definition": "AI 参与界面与体验设计：生成式 UI、设计工具、交互范式与 AI 产品的视觉实践。"
     },
     {
       "slug": "image-gen",
@@ -235,6 +245,16 @@
       "definition": "大模型是怎么练出来的：数据集构建、合成数据、预训练与后训练方法、算力与训练成本。"
     },
     {
+      "slug": "rag",
+      "name": "RAG 与数据工程",
+      "group": "field",
+      "tags": [
+        "RAG",
+        "数据/训练"
+      ],
+      "definition": "让模型用上自己的数据：检索增强生成、向量检索、数据清洗与知识库工程。"
+    },
+    {
       "slug": "safety",
       "name": "安全对齐",
       "group": "field",
@@ -245,7 +265,7 @@
     },
     {
       "slug": "mcp",
-      "name": "MCP 与工具调用",
+      "name": "MCP 与工具生态",
       "group": "field",
       "tags": [
         "MCP/工具调用"
@@ -308,12 +328,13 @@
     },
     {
       "slug": "trends",
-      "name": "现象与趋势",
+      "name": "产品发布与行业趋势",
       "group": "genre",
       "tags": [
-        "现象/趋势"
+        "现象/趋势",
+        "行业动态"
       ],
-      "definition": "AI 正在改变什么：大家怎么用 AI、新能力的出现、对社会与市场格局的影响。"
+      "definition": "AI 正在改变什么：产品发布、市场格局、使用方式的变化，以及值得跟踪的行业趋势。"
     },
     {
       "slug": "industry",

@@ -14,11 +14,17 @@ if (!/_(test|ci)$/.test(database)) {
   throw new Error(`Invariant tests write rows: point DATABASE_URL at a throwaway database named *_test or *_ci (got "${database}")`);
 }
 process.env.AIHOT_CREDENTIALS_DIR = "/nonexistent-test-credentials";
+// A developer's local egress proxy must not leak in: the SSRF-guard tests assert the direct path, and a
+// proxy answers "502 while HTTP tunneling" where the guard is supposed to say Blocked. The tests that
+// exercise the proxy set it themselves.
+delete process.env.EGRESS_PROXY_URL;
 process.env.SESSION_SECRET ??= "test-session-secret-0123456789";
 process.env.IMG_PROXY_SIGN_SECRET ??= "test-img-secret-0123456789";
 process.env.FEISHU_CONTENT_PUSH_ENABLED = "false";
 process.env.INDEXNOW_SUBMIT_ENABLED = "false";
 process.env.LOG_LEVEL ??= "error";
+// Public-outlet tests use anonymous reads; the private-access tests opt in explicitly.
+process.env.PRIVATE_ACCESS = "false";
 // Paid providers are local stubs in these tests: calls and collection may run (the valves default off).
 process.env.MODEL_CALLS_ENABLED ??= "true";
 process.env.COLLECT_ENABLED ??= "true";

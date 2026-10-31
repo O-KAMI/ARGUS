@@ -73,12 +73,12 @@ test('later story comparison uses an active root report instead of its withdrawn
   const a=await fixture(),b=await fixture();
   const old=await report(a,'withdrawn root primary','withdrawn',{role:'primary',age:2});
   const active=await report(a,'active root report','public',{age:1}); await report(b,'other story','public');
-  prompts.length=0; const out=await consolidate([a.storyId,b.storyId]);
+  prompts.length=0; const out=await consolidate([a.storyId,b.storyId],"news");
   assert.equal(out.length,1); assert.equal(prompts.length,1); assert.equal(prompts[0].includes(old.title),false); assert.equal(prompts[0].includes(active.title),true);
 });
 test('an all-withdrawn story supplies no material for a new paid story comparison',async()=>{
   const a=await fixture(),b=await fixture(); await report(a,'withdrawn story','withdrawn'); await report(b,'active story','public');
-  prompts.length=0; assert.deepEqual(await consolidate([a.storyId,b.storyId]),[]); assert.equal(prompts.length,0);
+  prompts.length=0; assert.deepEqual(await consolidate([a.storyId,b.storyId],"news"),[]); assert.equal(prompts.length,0);
 });
 
 test('withdrawn bridge reports cannot create a new related link, while saved links remain',async()=>{

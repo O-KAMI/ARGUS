@@ -18,7 +18,7 @@ import { shutdownSignal } from "../jobs/queue.ts";
 import { emit } from "../modules.ts";
 import { arrangeDaily, candidates, dailyEdition, periodEntries, sectionOf, SECTION_ORDER, type Candidate, type EditionEntry } from "./edition.ts";
 
-export const REPORT_VERSION = promptVersion("report-period", "report-period-sections", "report-period-no-sections");
+export const REPORT_VERSION = `${promptVersion("report-period", "report-period-sections", "report-period-no-sections")}+daily-beijing-natural-day-v1`;
 
 /**
  * The masthead's figures, counted in events: sources over every report its entries cite; releases
@@ -74,22 +74,22 @@ async function saveReport(kind: ReportKind, key: string, start: Date, end: Date,
   });
 }
 
-/** "10 月 4 日 08:00": one end of a quiet issue's window, as its lead paragraph names it. */
+/** "10 月 4 日 00:00": one end of a quiet issue's window, as its lead paragraph names it. */
 function windowPoint(at: Date): string {
   const day = beijingDate(at);
   return `${Number(day.slice(5, 7))} 月 ${Number(day.slice(8, 10))} 日 ${beijingTime(at)}`;
 }
 
 /**
- * Daily report for Beijing date D covers the 24 hours up to the site's edition time on D (EDITION_TIMES).
- * Its most important entry leads, in its own words, and the next three are today's highlights. A window
- * the editors judged with nothing new in it still has its issue: no entries, and a lead that says so
- * (REPORTS.quiet).
+ * Daily report for Beijing date D covers the previous Beijing calendar day: [D-1 00:00, D 00:00).
+ * It still comes out at the site's edition time on D (EDITION_TIMES). Its most important entry leads,
+ * in its own words, and the next three are the issue's highlights. A window the editors judged with
+ * nothing new in it still has its issue: no entries, and a lead that says so (REPORTS.quiet).
  */
 export async function composeDaily(date: string, reason?: string): Promise<{ key: string; entries: number }> {
   const previous = await savedReport("daily", date);
   if (previous && reason === undefined) return { key: date, entries: previous.entries };
-  const end = beijingAt(date, EDITION_TIMES.daily);
+  const end = beijingAt(date, "00:00");
   const start = new Date(end.getTime() - 86400000);
   const edition = await dailyEdition(date, start, end);
   // Nothing judged in the window is a failure upstream, not a quiet day: the run fails and is caught up later.
@@ -194,9 +194,9 @@ export function fitted(text: string, max: number): string | null {
 async function composePeriod(kind: "weekly" | "monthly", key: string, startDate: string, endDateInclusive: string, reason: string | undefined) {
   const previous = await savedReport(kind, key);
   if (previous && reason === undefined) return { key, entries: previous.entries };
-  // The dailies' windows run from the edition time the day before the first to that time on the last.
-  const start = beijingAt(addDays(startDate, -1), EDITION_TIMES.daily);
-  const end = beijingAt(endDateInclusive, EDITION_TIMES.daily);
+  // The dailies' windows run from midnight before the first date to midnight after the last.
+  const start = beijingAt(addDays(startDate, -1), "00:00");
+  const end = beijingAt(addDays(endDateInclusive, 1), "00:00");
   const { entries, issues, hasEntries } = await periodEntries(startDate, endDateInclusive);
   const top = entries.slice(0, PERIOD_EVENTS[kind]);
   if (!top.length) {

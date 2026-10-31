@@ -20,6 +20,8 @@ import { latestHotRanking } from "@aihot/backend/publication/hot";
 import { storyTexts } from "@aihot/backend/publication/story-text";
 
 const key = `evidence-${tag()}`;
+/** A daily carries technical directions only, so a fixture report needs one of the pack's field tags. */
+const FIELD_TAG = "Agent";
 const now = new Date();
 const at = (hours: number) => new Date(+now - hours * 3600_000);
 let digestPrompt = "";
@@ -61,7 +63,7 @@ async function report(sourceId: string, group: Awaited<ReturnType<typeof story>>
   await sql`INSERT INTO publications (article_id,analysis_id,source_id,title,summary,url,channel,first_party,timeline_at,discovered_at,published_at,sort_at,
     story_id,fact_id,selected,eligible,visible_after,tags,body_mode,score)
     VALUES (${id},${a!.id},${sourceId},${opts.title},${opts.title},${`https://example.org/${id}`},'news',true,${date},${date},${date},${date},
-    ${group.storyId},${group.factId},${opts.selected ?? true},true,${date},${[key]},'full',${opts.score ?? 70})`;
+    ${group.storyId},${group.factId},${opts.selected ?? true},true,${date},${[key, FIELD_TAG]},'full',${opts.score ?? 70})`;
   await sql`INSERT INTO fact_articles (fact_id,article_id,role,evidence) VALUES (${group.factId},${id},${opts.role ?? 'report'},'Tasks consume usage.')`;
   return id;
 }

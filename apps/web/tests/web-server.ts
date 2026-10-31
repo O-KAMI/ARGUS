@@ -16,7 +16,8 @@ export const FIXTURE_AT = "2026-10-04T08:00:00.000Z";
 /** A report as list cards show it; the fields a test does not name are fixed. */
 export function feedItem(fields: Partial<FeedItemSummary> & Pick<FeedItemSummary, "id" | "title">): FeedItemSummary {
   return {
-    summary: "固定摘要", reason: "固定推荐理由", source: { name: "Fixture" }, publishedAt: FIXTURE_AT, timelineAt: FIXTURE_AT,
+    summary: "固定摘要", reason: "固定推荐理由", source: { name: "Fixture" }, links: { original: "https://example.org/article" },
+    publishedAt: FIXTURE_AT, timelineAt: FIXTURE_AT,
     category: "ai-models", tags: [], score: 80, selected: true, channel: "news", x: null, ...fields,
   };
 }

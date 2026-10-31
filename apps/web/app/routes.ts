@@ -53,6 +53,7 @@ export default [
     route("admin/models", "routes/admin/models.tsx"),
     route("admin/selectbench", "routes/admin/selectbench.tsx"),
     route("admin/selectbench/:runId", "routes/admin/selectbench-run.tsx"),
+    route("admin/labeling", "routes/admin/labeling.tsx"),
     route("admin/settings", "routes/admin/settings.tsx"),
     route("admin/audit", "routes/admin/audit.tsx"),
     ...moduleAdminPages,

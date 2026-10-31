@@ -38,21 +38,44 @@ export const ITEM_TYPES = ["model_release", "product_launch", "tool_or_prompt", 
 
 // ── 标签词表 ────────────────────────────────────────────────────────────────────────────
 
-/** 每篇资料的第一个标签必须是这些“分类标签”之一。 */
+/**
+ * 每篇资料的第一个标签必须是这些“分类标签”之一。
+ *
+ * 学习轨的内容类型（模型输出的 kinds）与这里的分类标签、前台的“内容类型”筛选
+ * （packages/contracts/src/taxonomy.ts 的 GENRE_FILTERS）一一对应，三处一起改：
+ *
+ * | kind                  | 分类标签                     |
+ * |-----------------------|------------------------------|
+ * | skill_playbook        | Skill/Agent 玩法             |
+ * | asset_release         | 开源/仓库（具体某个项目发布）|
+ * | oss_ecosystem         | 开源生态（盘点、选型、趋势） |
+ * | monetization_fde      | AI 变现/FDE                  |
+ * | tutorial_explainer    | AI 编程 / 教材/课程          |
+ * | principles_internals  | 原理/机制                    |
+ * | knowledge_base        | 知识库                       |
+ * | ai_video              | AI 视频                      |
+ * | new_play              | 新玩法灵感                   |
+ * | opinion_insight       | 大佬观点                     |
+ * | news_like             | 行业动态                     |
+ *
+ * AI UI/设计 与 信息差 是同一批内容里读者要单独筛的角度：前者跟着 tutorial_explainer 的
+ * 界面/设计类材料，后者跟着 monetization_fde 里“外面搜不到”的那部分。
+ */
 export const CATEGORY_TAGS = [
   "产品更新", "模型发布", "论文/研究", "开源/仓库", "教程/实践", "现象/趋势", "大佬观点", "评测/基准", "安全/对齐", "行业动态", "政策/监管",
+  "Skill/Agent 玩法", "MCP/工具", "开源生态", "AI 编程", "AI 变现/FDE", "AI UI/设计", "原理/机制", "知识库", "AI 视频", "教材/课程", "新玩法灵感", "信息差",
   "非AI/通用工具", "其他",
 ] as const;
 
 /** 可选的主题标签。 */
 export const TOPIC_TAGS = [
-  "Agent", "编码", "推理", "多模态", "语音", "视频", "图像生成", "RAG", "端侧", "数据/训练", "搜索", "部署/工程", "开源生态", "具身智能", "MCP/工具调用",
+  "Agent", "编码", "推理", "多模态", "语音", "视频", "图像生成", "RAG", "端侧", "数据/训练", "搜索", "部署/工程", "开源生态", "具身智能", "MCP/工具调用", "设计/交互",
 ] as const;
 
 /** 可选的实体标签（公司、机构、平台）。 */
 export const ENTITY_TAGS = ["OpenAI", "Anthropic", "DeepSeek", "DeepMind", "Google", "Meta", "Microsoft", "xAI", "Hugging Face", "GitHub", "arXiv"] as const;
 
-/** 模型常写的近义词，统一成词表里的写法。 */
+/** 模型常写的近义词，统一成词表里的写法。拉丁字母的键写小写：查表时会再用小写查一次。 */
 export const TAG_SYNONYMS: Readonly<Record<string, string>> = {
   "教程/玩法": "教程/实践", "技巧/最佳实践": "教程/实践", "合作/生态": "行业动态", "融资/收购": "行业动态", "公司动态": "行业动态",
   合作: "行业动态", 生态: "行业动态", 融资: "行业动态", 收购: "行业动态", 投资: "行业动态", 并购: "行业动态",
@@ -61,8 +84,19 @@ export const TAG_SYNONYMS: Readonly<Record<string, string>> = {
   "open-source": "开源/仓库", 开源: "开源/仓库", 仓库: "开源/仓库", repo: "开源/仓库",
   教程: "教程/实践", 玩法: "教程/实践", 指南: "教程/实践", 技巧: "教程/实践", 最佳实践: "教程/实践", 实践: "教程/实践",
   产品: "产品更新", 更新: "产品更新", 发布: "模型发布", 模型: "模型发布", 趋势: "现象/趋势", 现象: "现象/趋势", 观点: "大佬观点",
-  视频生成: "视频", 非ai: "非AI/通用工具", "non-ai": "非AI/通用工具", 通用工具: "非AI/通用工具", 工程工具: "非AI/通用工具",
+  非ai: "非AI/通用工具", "non-ai": "非AI/通用工具", 通用工具: "非AI/通用工具", 工程工具: "非AI/通用工具",
   安全扫描: "非AI/通用工具", devops: "非AI/通用工具", 行业: "行业动态", 动态: "行业动态",
+  // 学习轨的内容类型：模型按内容重心写的说法收敛到词表里的分类标签。
+  skill: "Skill/Agent 玩法", skills: "Skill/Agent 玩法", agent玩法: "Skill/Agent 玩法", 工作流: "Skill/Agent 玩法",
+  mcp: "MCP/工具", 工具调用: "MCP/工具", "function calling": "MCP/工具",
+  // 开源/仓库 是某个具体项目的发布；开源生态 是盘点、选型与趋势。
+  开源项目: "开源生态", github项目: "开源生态", 仓库推荐: "开源生态",
+  ai编程: "AI 编程", "vibe coding": "AI 编程", cursor: "AI 编程", "claude code": "AI 编程",
+  变现: "AI 变现/FDE", 接单: "AI 变现/FDE", fde: "AI 变现/FDE", 交付: "AI 变现/FDE",
+  "ai ui": "AI UI/设计", 界面设计: "AI UI/设计", shadcn: "AI UI/设计",
+  agent原理: "原理/机制", llm原理: "原理/机制", 内部机制: "原理/机制", 实现原理: "原理/机制",
+  rag: "知识库", 语料: "知识库", 笔记系统: "知识库", 知识库搭建: "知识库",
+  ai做视频: "AI 视频", 视频生成: "AI 视频", sora: "AI 视频", runway: "AI 视频",
 };
 
 // ── 公司与主体 ──────────────────────────────────────────────────────────────────────────

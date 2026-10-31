@@ -47,17 +47,37 @@ function arr<T>(v: T | T[] | undefined | null): T[] {
   return Array.isArray(v) ? v : [v];
 }
 
+function mediaContainers(entry: Record<string, any>): Array<Record<string, any>> {
+  const groups = arr<Record<string, any>>(entry["media:group"]);
+  return [...groups.flatMap(group => arr<Record<string, any>>(group["media:content"])), ...arr<Record<string, any>>(entry["media:content"]), ...groups, entry];
+}
+
 /** Media RSS descriptions describe the video; even a long description is not a transcript. */
 function mediaDescription(entry: Record<string, any>): string | null {
-  const groups = arr<Record<string, any>>(entry["media:group"]);
-  const containers = [...groups.flatMap(group => arr<Record<string, any>>(group["media:content"])), ...arr<Record<string, any>>(entry["media:content"]), ...groups, entry];
-  for (const container of containers) {
+  for (const container of mediaContainers(entry)) {
     const description = container["media:description"];
     const value = text(description);
     if (!value) continue;
     return collapseWhitespace(description?.["@type"] === "html" ? stripTags(value) : value).slice(0, 2000) || null;
   }
   return null;
+}
+
+function mediaThumbnails(entry: Record<string, any>, base: string): Array<{ kind: "image"; url: string }> {
+  const out: Array<{ kind: "image"; url: string }> = [];
+  for (const container of mediaContainers(entry)) {
+    for (const thumbnail of arr<Record<string, any>>(container["media:thumbnail"])) {
+      const href = thumbnail?.["@url"];
+      if (typeof href !== "string" || !href) continue;
+      try {
+        const url = new URL(href, base);
+        if (/^https?:$/.test(url.protocol)) out.push({ kind: "image", url: url.toString() });
+      } catch {
+        // ignore bad urls
+      }
+    }
+  }
+  return out;
 }
 
 function parseDate(v: string): Date | null {
@@ -198,6 +218,7 @@ export async function fetchRss(source: SourceRow, opts: { force?: boolean } = {}
       const enclosure = enclosures.find((e) => /^image\//.test(e?.["@type"] ?? ""));
       const media = [
         ...(enclosure ? [{ kind: "image" as const, url: enclosure["@url"]! }] : []),
+        ...mediaThumbnails(it, link),
         ...(bodyHtmlRaw ? imagesFrom(bodyHtmlRaw, link) : []),
       ];
       out.push({
@@ -241,7 +262,7 @@ export async function fetchRss(source: SourceRow, opts: { force?: boolean } = {}
         sourceUpdatedAt: parseDate(text(e.updated)),
         ...feedText(bodyHtml, summary, source, !video, plainBody),
         ...(videoExcerpt ? { excerpt: videoExcerpt } : {}),
-        media: bodyHtmlRaw ? imagesFrom(bodyHtmlRaw, entryUrl) : [],
+        media: [...mediaThumbnails(e, entryUrl), ...(bodyHtmlRaw ? imagesFrom(bodyHtmlRaw, entryUrl) : [])].slice(0, 6),
         categories: arr(e.category).map((c: any) => c?.["@term"] ?? text(c)).filter(Boolean),
         raw: { id: text(e.id) || null },
       });

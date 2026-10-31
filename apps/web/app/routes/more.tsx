@@ -107,6 +107,17 @@ export default function MorePage() {
           <RowLink row={{ to: "/changelog", label: "更新日志", icon: <IconSparkles size={20} /> }} dot={changelogDot} />
           <RowLink row={{ to: "/feedback", label: "意见反馈", icon: <IconMessage size={20} /> }} />
         </Group>
+        <Group title="账户">
+          <RowLink row={{ to: "/admin/sources", label: "关注源与采集", icon: <IconPlug size={20} />, detail: "管理员" }} />
+          <li>
+            <form method="post" action="/api/auth/logout">
+              <button type="submit" className="flex min-h-[52px] w-full items-center gap-3 px-4 text-left text-[16px] font-medium text-ink transition-colors active:bg-bg-sunk lg:hover:bg-bg-sunk">
+                <span className="w-5 text-center text-ink-3" aria-hidden="true">↩</span>
+                <span className="flex-1">退出登录</span>
+              </button>
+            </form>
+          </li>
+        </Group>
       </div>
       <div className="mt-6 flex flex-wrap justify-center gap-x-4 gap-y-1 text-[12px] leading-[2] text-ink-4">
         <Link viewTransition to="/terms" className="hover:text-ink-2">{POLICY.terms.name}</Link>

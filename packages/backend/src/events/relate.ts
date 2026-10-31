@@ -9,11 +9,30 @@
 // with both reports fully described is what makes the judge usable: a yes/no question with
 // "prefer no" refused half of the true merges (measured on labelled pairs).
 import { z } from "zod";
+import type { Track } from "@aihot/industry/selection";
 import { describePublicationTime } from "../sources/dates.ts";
 import { promptText, promptVersion } from "../editorial/prompts.ts";
 
-export const RELATE_PROMPT_VERSION = promptVersion("group-pair", "group-signal");
-export const BATCH_PROMPT_VERSION = promptVersion("group-batch");
+export const GROUP_PROMPT_VERSIONS = {
+  batch: promptVersion("group-batch"),
+  batchLearning: promptVersion("group-batch-learning"),
+  /** The pair wording. The news value also covers group-signal, which judgeSignal records with it. */
+  pair: promptVersion("group-pair", "group-signal"),
+  pairLearning: promptVersion("group-pair-learning"),
+} as const;
+
+/** Which relation wording a judgement was produced under, per track. */
+export function batchPromptVersion(track: Track): string {
+  return track === "learning" ? GROUP_PROMPT_VERSIONS.batchLearning : GROUP_PROMPT_VERSIONS.batch;
+}
+
+export function relatePromptVersion(track: Track): string {
+  return track === "learning" ? GROUP_PROMPT_VERSIONS.pairLearning : GROUP_PROMPT_VERSIONS.pair;
+}
+
+/** Every step's prompt version as recorded on a news-track judgement. */
+export const BATCH_PROMPT_VERSION = batchPromptVersion("news");
+export const RELATE_PROMPT_VERSION = relatePromptVersion("news");
 
 /** Saved original evidence per report, shared by rendering and selected-background retrieval. */
 export const GROUP_BODY_CHARS = 10_000;
@@ -63,11 +82,27 @@ export interface Verdict {
 
 /**
  * The relation prompts (industry/prompts/group-*.md): a new report against candidate facts with its
- * reading value, a pair, a signal post.
+ * reading value, a pair, a signal post. The learning track has its own wording in its own files
+ * (group-batch-learning, group-pair-learning): it asks which asset, tutorial or playbook a post
+ * points at, not which occurrence it reports, because five people recommending one repository are
+ * five occurrences of one asset. It cannot be a `{{track}}` value inside one file: promptVersion
+ * hashes file contents only, so two different wordings would share one version number and a receipt
+ * could no longer say which of them produced a result. Signal posts have no learning wording — the
+ * sources that carry them are never on the learning track — so judgeSignal keeps the news version.
  */
 export const BATCH_SYSTEM = promptText("group-batch");
+export const BATCH_LEARNING_SYSTEM = promptText("group-batch-learning");
 export const PAIR_SYSTEM = promptText("group-pair");
+export const PAIR_LEARNING_SYSTEM = promptText("group-pair-learning");
 export const SIGNAL_SYSTEM = promptText("group-signal");
+
+export function batchSystem(track: Track): string {
+  return track === "learning" ? BATCH_LEARNING_SYSTEM : BATCH_SYSTEM;
+}
+
+export function pairSystem(track: Track): string {
+  return track === "learning" ? PAIR_LEARNING_SYSTEM : PAIR_SYSTEM;
+}
 
 const RelationSchema = z.enum(RELATIONS);
 

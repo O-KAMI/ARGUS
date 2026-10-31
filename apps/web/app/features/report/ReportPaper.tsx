@@ -19,7 +19,7 @@ import { Halftone } from "./Halftone";
 import { Nameplate } from "./Nameplate";
 import { IssueDots } from "./IssueDots";
 import { monthDay } from "../../lib/format.ts";
-import { EDITION, MOTTO, dateLine, dateMark, headline, metricItems, neighbourLabel, reportPath, shortDay } from "./format";
+import { EDITION, MOTTO, dateLine, dateMark, headline, metricItems, neighbourLabel, reportPath, shortDay, windowLine } from "./format";
 
 const pad = (n: number) => String(n).padStart(2, "0");
 const keyOf = (c: ReportCitation) => c.itemId ?? c.title;
@@ -38,6 +38,7 @@ function Masthead({ report, index, quiet }: { report: ReportDetail; index: Repor
         <span className="hidden tracking-[0.3em] @[640px]:inline">{MOTTO[report.kind]}</span>
         <span>{EDITION[report.kind]}</span>
       </div>
+      <p className="num mt-2 text-[11px] text-ink-4">{windowLine(report.windowStart, report.windowEnd)}</p>
 
       <div className="flex items-stretch justify-between gap-5 py-6 @[880px]:gap-10 @[880px]:py-8">
         <div className="flex min-w-0 flex-col justify-center">
@@ -281,7 +282,7 @@ function FrontPage({ report, pages, leadStory, count }: { report: ReportDetail; 
   const dek = daily || !leadStory ? (report.lead?.leadParagraph ?? leadStory?.summary ?? report.overview) : leadStory.summary;
   const highlights = report.highlights.filter((h) => !leadStory || keyOf(h) !== keyOf(leadStory)).slice(0, 3);
   const inPage = new Set(pages.flatMap((p) => p.items.map((c) => c.itemId)).filter(Boolean));
-  const period = daily ? "今日" : report.kind === "weekly" ? "本周" : "本月";
+  const period = daily ? "本期" : report.kind === "weekly" ? "本周" : "本月";
   const index = [...pages.map((p) => ({ id: p.id, label: p.label, n: `${p.items.length} 件` })), ...(report.flashes.length > 0 ? [{ id: "s-flash", label: "快讯", n: `${report.flashes.length} 条` }] : [])];
 
   return (

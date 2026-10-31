@@ -53,21 +53,20 @@ export function meta({ loaderData }: Route.MetaArgs) {
   });
 }
 
-/** Phones: a row per topic in a grouped list; wider screens: a card per topic. */
-function TopicCard({ t }: { t: TopicSummary }) {
+function TopicCard({ t, editorial = false }: { t: TopicSummary; editorial?: boolean }) {
   return (
     <IntentLink
       viewTransition
       to={`/topics/${t.slug}`}
-      className="group flex items-center gap-3 py-3 pl-4 pr-3 transition-colors active:bg-bg-sunk lg:card lg:card-hover lg:h-full lg:flex-col lg:items-stretch lg:gap-0 lg:px-5 lg:py-4 lg:active:bg-surface"
+      className={`group flex items-center gap-3 py-3 pl-4 pr-3 transition-colors hover:bg-bg-sunk/60 active:bg-bg-sunk ${editorial ? "lg:grid lg:grid-cols-[190px_minmax(0,1fr)_150px_18px] lg:gap-5 lg:px-3 lg:py-4" : "lg:card lg:card-hover lg:h-full lg:flex-col lg:items-stretch lg:gap-0 lg:px-5 lg:py-4 lg:active:bg-surface"}`}
     >
       {t.brand && (
         <span className="flex shrink-0 lg:hidden">
           <BrandMark brand={t.brand} size={30} />
         </span>
       )}
-      <span className="min-w-0 flex-1 lg:flex lg:flex-col">
-        <span className="flex items-center gap-2.5 text-[15.5px] font-semibold text-ink transition-colors group-hover:text-accent lg:text-[15px] lg:font-bold">
+      <span className={`min-w-0 flex-1 ${editorial ? "lg:contents" : "lg:flex lg:flex-col"}`}>
+        <span className={`flex items-center gap-2.5 font-semibold text-ink transition-colors group-hover:text-accent ${editorial ? "font-serif text-[15.5px] lg:text-[16px]" : "text-[15.5px] lg:text-[15px] lg:font-bold"}`}>
           {t.brand && (
             <span className="hidden lg:flex">
               <BrandMark brand={t.brand} size={22} />
@@ -75,10 +74,10 @@ function TopicCard({ t }: { t: TopicSummary }) {
           )}
           {t.name}
         </span>
-        <span className="mt-0.5 line-clamp-1 text-[12.5px] leading-[1.6] text-ink-4 lg:mt-1.5 lg:line-clamp-2 lg:flex-1 lg:text-[13px] lg:leading-[1.65] lg:text-ink-2">
+        <span className={`mt-0.5 line-clamp-1 text-[12.5px] leading-[1.6] text-ink-4 ${editorial ? "lg:mt-0 lg:text-[13px] lg:leading-[1.65] lg:text-ink-2" : "lg:mt-1.5 lg:line-clamp-2 lg:flex-1 lg:text-[13px] lg:leading-[1.65] lg:text-ink-2"}`}>
           {t.latest?.title ?? t.definition}
         </span>
-        <span className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11.5px] text-ink-4 lg:mt-3 lg:justify-between">
+        <span className={`mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[12px] text-ink-4 ${editorial ? "lg:mt-0 lg:justify-end" : "lg:mt-3 lg:justify-between"}`}>
           {t.latest && <time dateTime={t.latest.at} suppressHydrationWarning>{relativeTime(t.latest.at)}</time>}
           <span>
             {t.recent > 0 ? (
@@ -91,7 +90,7 @@ function TopicCard({ t }: { t: TopicSummary }) {
           </span>
         </span>
       </span>
-      <IconChevronRight size={16} className="shrink-0 text-ink-4 lg:hidden" />
+      <IconChevronRight size={16} className={`shrink-0 text-ink-4 ${editorial ? "lg:block" : "lg:hidden"}`} />
     </IntentLink>
   );
 }
@@ -116,12 +115,12 @@ export default function TopicsPage() {
             </h2>
             <p className="text-[12px] text-ink-4">{g.blurb}</p>
           </div>
-          <ul className="mt-3 divide-y divide-line-soft overflow-hidden rounded-card border border-line bg-surface lg:mt-3.5 lg:grid lg:grid-cols-3 lg:gap-3 lg:divide-y-0 lg:overflow-visible lg:rounded-none lg:border-0 lg:bg-transparent xl:grid-cols-4">
+          <ul className={`mt-3 divide-y divide-line-soft overflow-hidden rounded-card border border-line bg-surface ${g.key === "company" ? "lg:mt-3.5 lg:grid lg:grid-cols-3 lg:gap-3 lg:divide-y-0 lg:overflow-visible lg:rounded-none lg:border-0 lg:bg-transparent xl:grid-cols-4" : "lg:mt-4 lg:px-3"}`}>
             {topics
               .filter((t) => t.group === g.key)
               .map((t) => (
                 <li key={t.slug}>
-                  <TopicCard t={t} />
+                  <TopicCard t={t} editorial={g.key !== "company"} />
                 </li>
               ))}
           </ul>

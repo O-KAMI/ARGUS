@@ -21,6 +21,12 @@ beforeEach(async () => {
 });
 after(async () => { await stopBoss(); await closeDb(); });
 
+test("the natural-day cutoff does not move the 08:00 edition or its two-hour alert", async () => {
+  assert.deepEqual(daily((await collectFindings(at("2026-10-06", "00:00"))).map(f => f.key)), []);
+  assert.deepEqual(daily((await collectFindings(at("2026-10-06", "09:59"))).map(f => f.key)), []);
+  assert.deepEqual(daily((await collectFindings(at("2026-10-06", "10:00"))).map(f => f.key)), [key("2026-10-06")]);
+});
+
 test("midnight preserves a missing edition; each date recovers only when its report exists", async () => {
   let result = await checkAlerts(at("2026-10-06", "23:30"));
   assert.deepEqual(daily(result.sent), [key("2026-10-06")]);

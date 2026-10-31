@@ -13,7 +13,7 @@ import { pickRepresentative, REPRESENTATIVE_COLUMNS, type RepresentativeIdentity
 import { enqueue, QUEUES, shutdownSignal } from "../jobs/queue.ts";
 import { emit } from "../modules.ts";
 import {
-  bodyModeOf, channelOf, displayTags, isIndexable, isPoolEligible, isSelectable, isIndependentSelectedSource, mayRedistribute, publicSourceName, type SourceFacts,
+  bodyModeOf, channelOf, displayTags, isIndexable, isPoolEligible, isSelectable, isIndependentSelectedSource, mayRedistribute, platformOf, publicSourceName, type SourceFacts,
 } from "./rules.ts";
 import { foldableSelectionCondition, latestCompositeCondition, ownFactEvidenceCondition } from "./scope.ts";
 
@@ -42,6 +42,7 @@ interface AnalysisRow {
   category: string | null;
   tags: string[];
   subjects: string[];
+  learning_kinds: string[] | null;
   title_zh: string | null;
   summary_zh: string | null;
   reason_zh: string | null;
@@ -74,6 +75,8 @@ interface PublicationRow {
   syndicate: boolean;
   url: string;
   channel: string;
+  platform: string | null;
+  learning_kinds: string[] | null;
   published_at: Date | null;
   discovered_at: Date;
   timeline_at: Date;
@@ -247,7 +250,7 @@ export async function publishArticleTx(tx: Tx, articleId: string, options: Publi
     SELECT id, name, kind, tier, participation_mode, first_party, site_fulltext, syndicate_fulltext FROM sources WHERE id = ${article.source_id}`;
   if (!source) return null;
   const [analysis] = await tx<AnalysisRow[]>`
-    SELECT id, relevance, category, tags, subjects, title_zh, summary_zh, reason_zh, score, selected
+    SELECT id, relevance, category, tags, subjects, output->'learningKinds' AS learning_kinds, title_zh, summary_zh, reason_zh, score, selected
     FROM analyses WHERE article_id = ${articleId} ORDER BY input_revision DESC, id DESC LIMIT 1`;
   const [override] = await tx<OverrideRow[]>`SELECT fields, visibility FROM editorial_overrides WHERE article_id = ${articleId}`;
   const [membership] = await tx<{ fact_id: number; story_id: number | null }[]>`
@@ -293,6 +296,7 @@ export async function publishArticleTx(tx: Tx, articleId: string, options: Publi
   const reason = selected ? pickString(f.reason, original ? null : analysis?.reason_zh ?? null) : null;
   const hasXPost = !!article.x_post;
   const channel = channelOf(source.kind, hasXPost);
+  const platform = platformOf(source.kind, channel, article.url, source.id);
   const hasBody = !!article.body_text || !!article.x_post?.text || !!article.x_post?.media?.length || !!article.x_post?.quoted?.text;
   const bodyMode = bodyModeOf(source, article.body_status, hasBody);
   const syndicate = mayRedistribute(source, bodyMode);
@@ -325,8 +329,9 @@ export async function publishArticleTx(tx: Tx, articleId: string, options: Publi
     source_id: source.id, first_party: source.tier === "T1",
     visibility, eligible, selected, selection_candidate: selectionCandidate, title: title ?? collapseWhitespace(article.title), original_title: originalTitle, summary, reason,
     category, tags, score: round1(score), body_mode: bodyMode, story_id: membership?.story_id ?? null, fact_id: membership?.fact_id ?? null,
-    indexable, url: article.url, channel, syndicate, published_at: article.published_at, discovered_at: article.discovered_at,
+    indexable, url: article.url, channel, platform, syndicate, published_at: article.published_at, discovered_at: article.discovered_at,
     timeline_at: article.timeline_at, backfill: article.backfill, sort_at: sortAt, visible_after: visibleAfter,
+    learning_kinds: analysis?.learning_kinds ?? null,
   };
   const before = previous ? { ...previous, tags: [...previous.tags].sort(), score: previous.score === null ? null : Number(previous.score) } : null;
   const after = { ...next, tags: [...next.tags].sort() };
@@ -353,17 +358,18 @@ export async function publishArticleTx(tx: Tx, articleId: string, options: Publi
 
   await tx`
     INSERT INTO publications (article_id, analysis_id, revision, visibility, eligible, selected, selection_candidate, title, original_title, summary,
-      reason, category, tags, score, source_id, channel, first_party, url, published_at, discovered_at, timeline_at, backfill,
-      selected_ready_at, visible_after, body_mode, syndicate, indexable, story_id, fact_id, search_text, sort_at, updated_at)
+      reason, category, tags, score, source_id, channel, platform, first_party, url, published_at, discovered_at, timeline_at, backfill,
+      selected_ready_at, visible_after, body_mode, syndicate, indexable, story_id, fact_id, search_text, sort_at, learning_kinds, updated_at)
     VALUES (${articleId}, ${analysis?.id ?? null}, ${revision}, ${visibility}, ${eligible}, ${selected}, ${selectionCandidate}, ${next.title},
-      ${originalTitle}, ${summary}, ${reason}, ${category}, ${tags}, ${next.score}, ${source.id}, ${channel}, ${source.tier === "T1"},
+      ${originalTitle}, ${summary}, ${reason}, ${category}, ${tags}, ${next.score}, ${source.id}, ${channel}, ${platform}, ${source.tier === "T1"},
       ${article.url}, ${article.published_at}, ${article.discovered_at}, ${article.timeline_at}, ${article.backfill},
-      ${selectedReadyAt}, ${visibleAfter}, ${bodyMode}, ${syndicate}, ${indexable}, ${next.story_id}, ${next.fact_id}, ${searchText}, ${sortAt}, now())
+      ${selectedReadyAt}, ${visibleAfter}, ${bodyMode}, ${syndicate}, ${indexable}, ${next.story_id}, ${next.fact_id}, ${searchText}, ${sortAt}, ${next.learning_kinds}, now())
     ON CONFLICT (article_id) DO UPDATE SET
       analysis_id = EXCLUDED.analysis_id, revision = EXCLUDED.revision, visibility = EXCLUDED.visibility,
       eligible = EXCLUDED.eligible, selected = EXCLUDED.selected, selection_candidate = EXCLUDED.selection_candidate, title = EXCLUDED.title, original_title = EXCLUDED.original_title,
       summary = EXCLUDED.summary, reason = EXCLUDED.reason, category = EXCLUDED.category, tags = EXCLUDED.tags,
-      score = EXCLUDED.score, source_id = EXCLUDED.source_id, channel = EXCLUDED.channel, first_party = EXCLUDED.first_party,
+      score = EXCLUDED.score, source_id = EXCLUDED.source_id, channel = EXCLUDED.channel, platform = EXCLUDED.platform, first_party = EXCLUDED.first_party,
+      learning_kinds = EXCLUDED.learning_kinds,
       url = EXCLUDED.url, published_at = EXCLUDED.published_at, discovered_at = EXCLUDED.discovered_at,
       timeline_at = EXCLUDED.timeline_at, backfill = EXCLUDED.backfill, selected_ready_at = EXCLUDED.selected_ready_at,
       visible_after = EXCLUDED.visible_after, body_mode = EXCLUDED.body_mode, syndicate = EXCLUDED.syndicate,
@@ -372,7 +378,7 @@ export async function publishArticleTx(tx: Tx, articleId: string, options: Publi
     WHERE (publications.analysis_id, publications.revision, publications.visibility, publications.eligible,
         publications.selected, publications.selection_candidate, publications.title, publications.original_title, publications.summary,
         publications.reason, publications.category, publications.tags, publications.score,
-        publications.source_id, publications.channel, publications.first_party, publications.url,
+        publications.source_id, publications.channel, publications.platform, publications.learning_kinds, publications.first_party, publications.url,
         publications.published_at, publications.discovered_at, publications.timeline_at, publications.backfill,
         publications.selected_ready_at, publications.visible_after, publications.body_mode, publications.syndicate,
         publications.indexable, publications.story_id, publications.fact_id, publications.search_text,
@@ -380,7 +386,7 @@ export async function publishArticleTx(tx: Tx, articleId: string, options: Publi
       IS DISTINCT FROM (EXCLUDED.analysis_id, EXCLUDED.revision, EXCLUDED.visibility, EXCLUDED.eligible,
         EXCLUDED.selected, EXCLUDED.selection_candidate, EXCLUDED.title, EXCLUDED.original_title, EXCLUDED.summary,
         EXCLUDED.reason, EXCLUDED.category, EXCLUDED.tags, EXCLUDED.score,
-        EXCLUDED.source_id, EXCLUDED.channel, EXCLUDED.first_party, EXCLUDED.url,
+        EXCLUDED.source_id, EXCLUDED.channel, EXCLUDED.platform, EXCLUDED.learning_kinds, EXCLUDED.first_party, EXCLUDED.url,
         EXCLUDED.published_at, EXCLUDED.discovered_at, EXCLUDED.timeline_at, EXCLUDED.backfill,
         EXCLUDED.selected_ready_at, EXCLUDED.visible_after, EXCLUDED.body_mode, EXCLUDED.syndicate,
         EXCLUDED.indexable, EXCLUDED.story_id, EXCLUDED.fact_id, EXCLUDED.search_text,
@@ -417,6 +423,25 @@ export async function publishArticleTx(tx: Tx, articleId: string, options: Publi
       (previous!.selected && !selected) ||
       (previous!.body_mode === "full" && bodyMode !== "full"));
   return { articleId, changed, changeKind, selected, visibility, ledger, reduced };
+}
+
+/**
+ * Takes an article out of the public projection and deletes it with everything derived from it: a
+ * retention period's end (a module's retention). The selected-set ledger records the removal before the
+ * rows go and the article's ledger state goes with them, so no client's snapshot keeps a deleted item.
+ * Returns whether there was an article to delete.
+ */
+export async function retireArticle(articleId: string, now = new Date()): Promise<boolean> {
+  return sql.begin(async (tx) => {
+    const [row] = await tx<{ id: string }[]>`SELECT id FROM articles WHERE id = ${articleId} FOR UPDATE`;
+    if (!row) return false;
+    await tx`UPDATE publications SET selected = false, seat = false, visibility = 'withdrawn' WHERE article_id = ${articleId}`;
+    await syncLedger(tx, articleId, now);
+    await tx`DELETE FROM articles WHERE id = ${articleId}`;
+    await tx`DELETE FROM selected_state WHERE article_id = ${articleId}`;
+    await emit("articleChanged", { id: articleId, kind: "content", reduced: true, reason: "retired" }, tx);
+    return true;
+  });
 }
 
 /**

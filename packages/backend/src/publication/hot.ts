@@ -1,13 +1,14 @@
 // The latest hot ranking through the public read layer. A stored entry is shown only while its
 // representative is still listed evidence of the story (regrouping or a withdrawal can undo it before
 // the next ranking); the web shows heat values, machine exits only ranks (stories.ts).
-import { HOT_FACE_LIMIT, type HotParticipant, type HotStripEntry } from "@aihot/contracts/site";
+import { HOT_FACE_LIMIT, type HotParticipant, type HotStripEntry, type ImportantAnnouncement } from "@aihot/contracts/site";
 import { sql } from "../db.ts";
 import { storedHotRanking, tierRank, type HotEntry, type HotRanking } from "../events/hot.ts";
 import { shared } from "../lib/cache.ts";
 import { proxiedImage, proxiedImageSet } from "../media/imgproxy.ts";
+import { ITEM_COLUMNS, ITEM_FROM, toItemSummary, type ItemRow } from "./items.ts";
 import { publicSourceName } from "./rules.ts";
-import { evidenceCondition, listedCondition } from "./scope.ts";
+import { evidenceCondition, listedCondition, selectedCondition } from "./scope.ts";
 import { storyTexts } from "./story-text.ts";
 
 // Concurrent reads are shared, nothing more: public words follow withdrawals and regrouping at once.
@@ -124,4 +125,32 @@ export async function loadHotStrip(): Promise<HotStripEntry[] | null> {
     participants: extras.participants(e),
     participantCount: e.participantCount,
   }));
+}
+
+/**
+ * Official selected reports are timely announcements, not evidence of cross-source discussion or heat.
+ * The learning track deliberately does not select industry news (the mirror covers that), yet an account
+ * the owner follows passing along an announcement is still worth announcing — so a learning-track item the
+ * judge typed as `news_like` carries here on its own branch, unselected, within a short window.
+ */
+export async function loadImportantAnnouncements(now = new Date()): Promise<ImportantAnnouncement[]> {
+  const rows = await sql<ItemRow[]>`
+    SELECT ${ITEM_COLUMNS} ${ITEM_FROM}
+    WHERE (${selectedCondition(now)} AND p.first_party)
+       OR (p.visibility = 'public' AND p.eligible AND s.participation_mode = 'editorial'
+           AND p.learning_kinds && ARRAY['news_like']::text[]
+           AND coalesce(p.published_at, p.discovered_at) >= ${now}::timestamptz - interval '3 days')
+    ORDER BY coalesce(p.published_at, p.discovered_at) DESC, p.article_id DESC LIMIT 6`;
+  return rows.map((row) => {
+    const item = toItemSummary(row);
+    return {
+      id: item.id,
+      title: item.title,
+      summary: item.summary,
+      source: item.source,
+      links: item.links,
+      publishedAt: item.publishedAt,
+      timelineAt: item.timelineAt,
+    };
+  });
 }

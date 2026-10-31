@@ -10,6 +10,8 @@ import { composeDaily, composeDueReports } from "@aihot/backend/reports/compose"
 
 const T = tag();
 const SOURCE = `report-shutdown-${T}`;
+/** A daily carries technical directions only, so a fixture report needs one of the pack's field tags. */
+const FIELD_TAG = "Agent";
 let hold: { asked: ReturnType<typeof gate<void>>; answer: ReturnType<typeof gate<void>> } | null = null;
 const provider = await stub(async () => {
   const held = hold;
@@ -34,8 +36,8 @@ test("a weekly writer refused after the stop began leaves catch-up without a fai
     const at = editionAt("daily", date, -12 * 3600);
     await sql`INSERT INTO articles (id, source_id, identity_key, url, title, discovered_at, timeline_at)
       VALUES (${id}, ${SOURCE}, ${id}, ${`https://example.com/${id}`}, ${id}, ${at}, ${at})`;
-    await sql`INSERT INTO publications (article_id, title, source_id, channel, url, discovered_at, timeline_at, sort_at, eligible, selected, visible_after, visibility, score)
-      VALUES (${id}, ${id}, ${SOURCE}, 'news', ${`https://example.com/${id}`}, ${at}, ${at}, ${at}, true, true, ${at}, 'public', 90)`;
+    await sql`INSERT INTO publications (article_id, title, source_id, channel, url, discovered_at, timeline_at, sort_at, eligible, selected, visible_after, visibility, score, tags)
+      VALUES (${id}, ${id}, ${SOURCE}, 'news', ${`https://example.com/${id}`}, ${at}, ${at}, ${at}, true, true, ${at}, 'public', 90, ${[FIELD_TAG]})`;
     await composeDaily(date);
   }
   const reports = async () => (await sql<{ kind: string; key: string }[]>`SELECT kind, key FROM reports ORDER BY kind, key`).map((r) => `${r.kind}:${r.key}`);

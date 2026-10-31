@@ -19,7 +19,7 @@ const KEYS: Record<SourceRow["kind"], string[]> = {
     "urlTemplate", "urlTemplateFallback", "rawDropKeys", "requireBoolean", "minNumeric",
   ],
   // X accounts are mostly read in shards, which apply only these.
-  x_search: [...PUBLISHER, "_aihot", "ingestNoiseFilter", "itemUrlPrefixRewrite", "query", "searchType"],
+  x_search: [...PUBLISHER, "_aihot", "ingestNoiseFilter", "itemUrlPrefixRewrite", "query", "searchType", "provider"],
   mp_account: [...PUBLISHER, "wxid", "ghid", "nickname"],
   external: [...PUBLISHER],
 };
@@ -49,6 +49,7 @@ const VALUES: Record<string, string[]> = {
   publisherRole: ["organization", "person"],
   adapter: ["mimo_home"],
   parseMode: ["html", "markdown", "docusaurus_changelog", "intercom_changelog"],
+  provider: ["fxtwitter", "socialdata"],
 };
 
 // An Accept-Language value: language ranges with optional weights, e.g. "en-US,en;q=0.9".

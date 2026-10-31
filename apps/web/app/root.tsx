@@ -5,10 +5,11 @@ import {
 import type { SiteMeta } from "@aihot/contracts/site";
 import { SITE } from "@aihot/site";
 import { RingMark } from "@aihot/site/brand/Logo.tsx";
+import { INK } from "./components/ink";
 import { useEffect, useState, type ReactNode } from "react";
 import type { Route } from "./+types/root";
 import "./app.css";
-import { Sidebar } from "./components/shell/Sidebar";
+import { TopHeader } from "./components/shell/TopHeader";
 import { TabBar } from "./components/shell/TabBar";
 import { PullToRefresh } from "./components/shell/PullToRefresh";
 import { usePageTransition } from "./components/shell/transitions";
@@ -22,10 +23,12 @@ import { titled } from "./lib/seo";
 import { webModules } from "./site-modules";
 
 export const links: Route.LinksFunction = () => [
-  { rel: "icon", href: "/favicon.ico", sizes: "any" },
-  { rel: "icon", type: "image/png", href: "/icon.png" },
-  { rel: "apple-touch-icon", href: "/apple-icon.png" },
+  // One declared icon, the ink mark at tab size from the immutable build; the api's 512 stays for the manifest.
+  { rel: "icon", type: "image/png", sizes: "64x64", href: INK.favicon },
+  { rel: "apple-touch-icon", href: INK.appleIcon },
   { rel: "manifest", href: "/manifest.webmanifest" },
+  // The header's lockup is on every page; start it with the document.
+  { rel: "preload", as: "image", href: INK.lockupPrimary, fetchPriority: "high" },
   { rel: "alternate", type: "application/rss+xml", title: `${SITE.name} — 精选`, href: "/feed.xml" },
 ];
 
@@ -78,23 +81,20 @@ export function meta({ error }: Route.MetaArgs) {
   return [{ title: titled(notFound ? "页面不存在" : "暂时无法加载") }, { name: "robots", content: "noindex" }];
 }
 
-/** Sidebar, main column and phone tab bar around a page (or an error). */
+/** Top brand navigation on desktop; the established bars and single column remain on phones. */
 function SiteShell({ changelogVersion, children }: { changelogVersion: string | null; children: ReactNode }) {
   const navigation = useNavigation();
-  // The phone search and pull-to-refresh are client-side, mounted once the page is interactive.
   const [interactive, setInteractive] = useState(false);
   useEffect(() => setInteractive(true), []);
   return (
-    <div className="flex min-h-dvh">
+    <div className="min-h-dvh">
       <NavigationProgress active={navigation.state === "loading"} />
       <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[70] focus:rounded-control focus:bg-surface focus:px-3 focus:py-2">
         跳到正文
       </a>
-      <Sidebar changelogVersion={changelogVersion} />
-      {/* Phone shell (≤ 960px): each page's top bar (PhoneBar), one centred column, the tab bar below.
-          Desktop: the page fills the main area up to the list width (--page-max-wide), centred beyond it. */}
-      <main id="main" className="min-w-0 flex-1 pb-[calc(72px+env(safe-area-inset-bottom))] lg:px-7 lg:pb-[72px] lg:pt-6">
-        <div className="mx-auto w-full max-w-[640px] pl-[var(--gutter-l)] pr-[var(--gutter-r)] lg:max-w-[var(--page-max-wide)] lg:px-0">
+      <TopHeader changelogVersion={changelogVersion} />
+      <main id="main" className="min-w-0 flex-1 pb-[calc(72px+env(safe-area-inset-bottom))] lg:px-7 lg:pb-[72px] lg:pt-0">
+        <div className="mx-auto w-full max-w-[640px] pl-[var(--gutter-l)] pr-[var(--gutter-r)] lg:max-w-[1360px] lg:px-0">
           {webModules().map((m) => m.root?.Top && <m.root.Top key={m.name} />)}
           {children}
         </div>

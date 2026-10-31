@@ -20,7 +20,8 @@
 @custom-variant touch (@media (hover: none));
 
 @theme {
-  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "HarmonyOS Sans SC", "Microsoft YaHei", sans-serif;
+  --font-sans: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "HarmonyOS Sans SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  --font-serif: "Songti SC", "Noto Serif CJK SC", "Source Han Serif SC", "STSong", Georgia, serif;
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", monospace;
 
   /* Semantic colours. */
@@ -92,55 +93,58 @@
   --gutter-l: max(16px, env(safe-area-inset-left));
   --gutter-r: max(16px, env(safe-area-inset-right));
   color-scheme: light;
-  --bg: #faf9f6;
-  --bg-sunk: #f3f3ef;
-  --bg-muted: #e9ede9;
+  --bg: #f5f2eb;
+  --paper-light: var(--bg);
+  --bg-sunk: #ebe7de;
+  --bg-muted: #e2ddd2;
   /* Sunk fills: wells, pill tracks, search fields, quiet badges. */
   --well: var(--bg-sunk);
-  --surface: #ffffff;
-  --surface-2: #fdfdfb;
-  --raised: #ffffff;
-  --sidebar: #fdfdfb;
-  --daybar: #f0f2ee;
-  --ink: #202a30;
-  --ink-2: #303c42;
-  --ink-3: #59656b;
-  --ink-4: #657176;
-  --line: #dfe4e1;
-  --line-strong: #d1d9d5;
-  --line-soft: #e9ede9;
-  --accent: #176b75;
-  --accent-ink: #145f68;
-  --accent-soft: rgba(23, 107, 117, 0.08);
-  --accent-softer: rgba(23, 107, 117, 0.05);
-  --accent-contrast: #ffffff;
-  --note: #526f72;
-  --hot: #b3402a;
-  --hot-soft: rgba(179, 64, 42, 0.08);
-  --amber: #b8873a;
-  --amber-ink: #7c5a24;
-  --amber-soft: rgba(184, 135, 58, 0.1);
-  --ok: #2f7d5c;
-  --ok-soft: rgba(47, 125, 92, 0.1);
-  --ok-ink: #2a6e51;
-  --rank-1: #b3402a;
-  --rank-2: #a3642f;
-  --rank-3: #96702e;
-  --rank-rest: #6b7684;
-  --shadow-card: 0 1px 2px rgba(32, 42, 48, 0.025);
-  --shadow-card-hover: 0 3px 12px rgba(32, 42, 48, 0.055);
-  --shadow-soft: 0 4px 12px rgba(28, 39, 51, 0.06);
-  --shadow-thumb: 0 1px 2px rgba(28, 39, 51, 0.1), 0 1px 1px rgba(28, 39, 51, 0.04);
-  --shadow-pop: 0 12px 32px rgba(28, 39, 51, 0.12);
-  --prose-ink: #26323a;
-  --code-bg: #f6f7f4;
-  --code-keyword: #006d77;
-  --code-string: #2f6f44;
-  --code-number: #9a6700;
-  --code-title: #6f42c1;
-  --code-variable: #a13d10;
-  --code-meta: #b42348;
-  --selection: rgba(23, 107, 117, 0.16);
+  --surface: #fbf9f4;
+  --surface-2: #faf7f1;
+  --raised: #fbf9f4;
+  --sidebar: #f1ede4;
+  --daybar: #ebe7de;
+  --ink: #242521;
+  --ink-2: #3a3b36;
+  --ink-3: #555750;
+  --ink-4: #85867f;
+  --line: #dedad1;
+  --line-strong: #cec8bb;
+  --line-soft: #e8e3d9;
+  /* Interaction and links use ink-brown; seal red is kept for small, meaningful marks. */
+  --accent: #655b4d;
+  --accent-ink: #575044;
+  --accent-soft: rgba(101, 91, 77, 0.09);
+  --accent-softer: rgba(101, 91, 77, 0.05);
+  --accent-contrast: #fffdf8;
+  --seal-red: #b65e52;
+  --note: #6f7a6c;
+  --hot: #b65e52;
+  --hot-soft: rgba(182, 94, 82, 0.09);
+  --amber: #a87836;
+  --amber-ink: #835a22;
+  --amber-soft: rgba(168, 120, 54, 0.1);
+  --ok: #47785f;
+  --ok-soft: rgba(71, 120, 95, 0.1);
+  --ok-ink: #3c6652;
+  --rank-1: #b65e52;
+  --rank-2: #a87836;
+  --rank-3: #8a7b5b;
+  --rank-rest: #85867f;
+  --shadow-card: 0 1px 2px rgba(36, 37, 33, 0.03);
+  --shadow-card-hover: 0 4px 14px rgba(36, 37, 33, 0.07);
+  --shadow-soft: 0 4px 12px rgba(36, 37, 33, 0.06);
+  --shadow-thumb: 0 1px 2px rgba(36, 37, 33, 0.12), 0 1px 1px rgba(36, 37, 33, 0.05);
+  --shadow-pop: 0 12px 32px rgba(36, 37, 33, 0.14);
+  --prose-ink: #2b2c27;
+  --code-bg: #f2eee6;
+  --code-keyword: #6b5a43;
+  --code-string: #47785f;
+  --code-number: #8a5f25;
+  --code-title: #6f5b78;
+  --code-variable: #9a5340;
+  --code-meta: #a8493f;
+  --selection: rgba(101, 91, 77, 0.18);
 }
 
 @media (min-width: 961px) {
@@ -151,54 +155,55 @@
 
 [data-theme="dark"] {
   color-scheme: dark;
-  --bg: #13191c;
-  --bg-sunk: #182024;
-  --bg-muted: #202a2f;
+  --bg: #1b1a17;
+  --bg-sunk: #23221e;
+  --bg-muted: #2c2a25;
   --well: color-mix(in oklab, var(--bg-muted) 60%, transparent);
-  --surface: #1a2226;
-  --surface-2: #1d272b;
-  --raised: #202a2f;
-  --sidebar: #161e21;
-  --daybar: #182024;
-  --ink: #e7eceb;
-  --ink-2: #d2dada;
-  --ink-3: #a5b0b3;
-  --ink-4: #89979d;
-  --line: rgba(255, 255, 255, 0.08);
-  --line-strong: rgba(255, 255, 255, 0.12);
-  --line-soft: rgba(255, 255, 255, 0.06);
-  --accent: #12ccd8;
-  --accent-ink: #2ce2e8;
-  --accent-soft: rgba(18, 204, 216, 0.12);
-  --accent-softer: rgba(18, 204, 216, 0.06);
-  --accent-contrast: #000000;
-  --note: #8fb8a8;
-  --hot: #d86a52;
-  --hot-soft: rgba(216, 106, 82, 0.12);
+  --surface: #232220;
+  --surface-2: #272521;
+  --raised: #2a2824;
+  --sidebar: #1f1e1b;
+  --daybar: #23221e;
+  --ink: #ece8df;
+  --ink-2: #d8d3c8;
+  --ink-3: #ada79b;
+  --ink-4: #918b80;
+  --line: rgba(236, 232, 223, 0.1);
+  --line-strong: rgba(236, 232, 223, 0.16);
+  --line-soft: rgba(236, 232, 223, 0.07);
+  --accent: #c3ae8d;
+  --accent-ink: #d3c1a4;
+  --accent-soft: rgba(195, 174, 141, 0.13);
+  --accent-softer: rgba(195, 174, 141, 0.07);
+  --accent-contrast: #1b1a17;
+  --seal-red: #d98b7d;
+  --note: #a7b09b;
+  --hot: #d98b7d;
+  --hot-soft: rgba(217, 139, 125, 0.13);
   --amber: #d3b26a;
   --amber-ink: #d3b26a;
   --amber-soft: rgba(211, 178, 106, 0.12);
-  --ok: #5fc79a;
-  --ok-soft: rgba(95, 199, 154, 0.12);
-  --ok-ink: #7fd1ad;
-  --rank-1: #d86a52;
-  --rank-2: #d18a5e;
-  --rank-3: #d3b26a;
-  --rank-rest: #7b869a;
+  --ok: #7fc79f;
+  --ok-soft: rgba(127, 199, 159, 0.12);
+  --ok-ink: #96d6b2;
+  --rank-1: #d98b7d;
+  --rank-2: #d3b26a;
+  --rank-3: #b9a88b;
+  --rank-rest: #918b80;
   --shadow-card: none;
   --shadow-card-hover: none;
   --shadow-soft: 0 6px 18px rgba(0, 0, 0, 0.35);
   --shadow-thumb: 0 1px 2px rgba(0, 0, 0, 0.45);
   --shadow-pop: 0 16px 40px rgba(0, 0, 0, 0.45);
-  --prose-ink: #d7dfdf;
-  --code-bg: #10151c;
-  --code-keyword: #78dce8;
-  --code-string: #a9dc76;
-  --code-number: #ffd866;
-  --code-title: #ab9df2;
-  --code-variable: #fc9867;
-  --code-meta: #ff6188;
-  --selection: rgba(18, 204, 216, 0.22);
+  --prose-ink: #d8d3c8;
+  --code-bg: #171613;
+  --code-keyword: #d3b26a;
+  --code-string: #96d6b2;
+  --code-number: #dba86a;
+  --code-title: #c3ae8d;
+  --code-variable: #d98b7d;
+  --code-meta: #e0a196;
+  --selection: rgba(195, 174, 141, 0.24);
 }
 
 @layer base {
@@ -214,7 +219,7 @@
     color: var(--ink);
     font-family: var(--font-sans);
     font-size: 14px;
-    line-height: 1.5;
+    line-height: 1.65;
   }
   ::selection {
     background: var(--selection);
@@ -310,6 +315,46 @@
 @utility bleed {
   margin-inline: calc(-1 * var(--gutter-l)) calc(-1 * var(--gutter-r));
   padding-inline: var(--gutter-l) var(--gutter-r);
+}
+
+/* ARGUS brand hero: warm paper, a faint ink-wash landscape, a seal-red mark. Decoration never sits
+   behind body text, and the content stays within the first screen. */
+@utility brand-hero {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background:
+    radial-gradient(120% 90% at 88% 8%, rgba(213, 211, 204, 0.55), transparent 62%),
+    radial-gradient(90% 70% at 4% 100%, rgba(213, 211, 204, 0.35), transparent 70%),
+    var(--paper-light, var(--surface));
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+}
+.brand-hero::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 640 220' preserveAspectRatio='xMaxYMax slice'%3E%3Cpath d='M0 190 C90 120 150 150 220 96 C280 50 330 118 400 78 C470 38 520 108 640 64 L640 220 L0 220 Z' fill='%23d5d3cc' fill-opacity='.38'/%3E%3Cpath d='M0 214 C110 160 180 188 260 146 C350 98 400 168 480 132 C545 102 590 148 640 124 L640 220 L0 220 Z' fill='%2385867f' fill-opacity='.16'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right bottom;
+  background-size: min(100%, 640px) auto;
+  opacity: 0.9;
+  pointer-events: none;
+}
+[data-theme="dark"] .brand-hero::after { opacity: 0.3; }
+
+/* The ink drawings ship as light-paper rasters; night reads them as negatives, hue kept. */
+.ink-mono,
+.ink-photo {
+  -webkit-user-drag: none;
+}
+[data-theme="dark"] .ink-mono {
+  filter: invert(1) hue-rotate(180deg) brightness(1.05);
+}
+[data-theme="dark"] .ink-photo {
+  filter: invert(1) hue-rotate(180deg) brightness(0.82) contrast(0.94);
+  opacity: 0.9;
 }
 
 /* Cards are utilities so they take variants (lg:card: a card on desktop, a plain row on phones). */

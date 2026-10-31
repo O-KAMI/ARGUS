@@ -23,15 +23,17 @@ import { chatJson } from "../providers/llm.ts";
 import { completeReceipt, failedReceiptId, failureKind } from "../providers/receipts.ts";
 import { embeddingsAvailable } from "../providers/embeddings.ts";
 import { isHistorical, newsCondition } from "../content/materials.ts";
+import { trackOf, type Track } from "@aihot/industry/selection";
 import { enqueue, QUEUES, shutdownSignal } from "../jobs/queue.ts";
 import { groupingPriority } from "../jobs/content.ts";
 import { publishArticle, publishArticleTx } from "../publication/publish.ts";
 import { latestCompositeCondition } from "../publication/scope.ts";
 import { consolidate, liveStory, type Consolidation } from "./consolidate.ts";
 import { mergeStoryInto } from "./merge.ts";
-import { candidateViews, cosine32, recallFacts, recallSelectedBackground, relatedPosts, vectorsFor } from "./recall.ts";
+import { candidateViews, cosine32, lexicalScores, recallFacts, recallSelectedBackground, relatedPosts, vectorsFor } from "./recall.ts";
 import {
-  BATCH_SYSTEM, BATCH_PROMPT_VERSION, BatchSchema, PAIR_SYSTEM, PairSchema, RELATE_PROMPT_VERSION, SIGNAL_SYSTEM, SignalSchema, TIE_MIN_CONFIDENCE,
+  BatchSchema, PairSchema, RELATE_PROMPT_VERSION, SIGNAL_SYSTEM, SignalSchema, TIE_MIN_CONFIDENCE,
+  batchPromptVersion, batchSystem, pairSystem, relatePromptVersion,
   batchUser, completeDecisions, firmlyTied, pairUser, reportText, sameOccurrence, signalTarget, storyForDevelopment, verdictsByFact,
   type CandidateView, type ReadingContext, type Relation, type ReportView, type SelectionValue, type Verdict,
 } from "./relate.ts";
@@ -55,9 +57,11 @@ interface ArticleRow {
   discovered_at: Date;
   grouped_at: Date | null;
   body_text: string | null;
+  asset_key: string | null;
   x_post: { tweetId?: string; replyTo?: string | null; quoted?: { url?: string } | null } | null;
   source_id: string;
   source_name: string;
+  source_tags: string[];
   signal_group_id: string | null;
   first_party: boolean;
   participation_mode: string;
@@ -76,23 +80,24 @@ function participantKey(source: { id: string; signal_group_id: string | null }):
 
 const NO_SELECTED_COVERAGE: SelectionValue = { addsValue: true, reason: "没有已公开精选的相关报道" };
 
-async function judgeBatch(articleId: string, query: ReportView, cands: CandidateView[], reading: ReadingContext[]): Promise<{ verdicts: Map<number, Verdict>; selection: SelectionValue; receiptId: number }> {
+async function judgeBatch(articleId: string, track: Track, query: ReportView, cands: CandidateView[], reading: ReadingContext[]): Promise<{ verdicts: Map<number, Verdict>; selection: SelectionValue; receiptId: number }> {
   const res = await chatJson({
-    ...await modelRoute("group"), purpose: "group_article", subject: `article:${articleId}`, promptVersion: BATCH_PROMPT_VERSION,
-    system: BATCH_SYSTEM, user: batchUser(query, cands, "新报道", reading), schema: BatchSchema.refine(value => completeDecisions(value.decisions, cands.length), "Every candidate requires exactly one decision"), temperature: 0, maxTokens: 400 + 120 * cands.length,
+    ...await modelRoute("group"), purpose: "group_article", subject: `article:${articleId}`, promptVersion: batchPromptVersion(track),
+    system: batchSystem(track), user: batchUser(query, cands, "新报道", reading), schema: BatchSchema.refine(value => completeDecisions(value.decisions, cands.length), "Every candidate requires exactly one decision"), temperature: 0, maxTokens: 400 + 120 * cands.length,
   });
   return { verdicts: verdictsByFact(res.data.decisions, cands), selection: cands.some(c => c.selected) || reading.length ? res.data.selection : NO_SELECTED_COVERAGE, receiptId: res.receiptId };
 }
 
 /** The review model reads both reports on their own; a merge stands only when it agrees. */
-async function confirmMerge(articleId: string, query: ReportView, cand: CandidateView): Promise<{ relation: Relation; receiptId: number }> {
+async function confirmMerge(articleId: string, track: Track, query: ReportView, cand: CandidateView): Promise<{ relation: Relation; receiptId: number }> {
   const res = await chatJson({
-    model: await modelFor("groupReview"), purpose: "group_review", subject: `article:${articleId}:fact:${cand.factId}`, promptVersion: RELATE_PROMPT_VERSION,
-    system: PAIR_SYSTEM, user: pairUser(query, cand.report), schema: PairSchema, temperature: 0, maxTokens: 400,
+    model: await modelFor("groupReview"), purpose: "group_review", subject: `article:${articleId}:fact:${cand.factId}`, promptVersion: relatePromptVersion(track),
+    system: pairSystem(track), user: pairUser(query, cand.report), schema: PairSchema, temperature: 0, maxTokens: 400,
   });
   return { relation: res.data.relation, receiptId: res.receiptId };
 }
 
+/** Discussion posts are judged with the news wording: there is no learning variant of group-signal. */
 async function judgeSignal(articleId: string, query: ReportView, cands: CandidateView[]): Promise<{ verdicts: Map<number, Verdict>; receiptId: number }> {
   const res = await chatJson({
     ...await modelRoute("group"), purpose: "group_signal", subject: `article:${articleId}`, promptVersion: RELATE_PROMPT_VERSION,
@@ -209,7 +214,7 @@ async function markGrouped(articleId: string, revision: number, selection?: Sele
 
 export interface GroupResult {
   verdict:
-    | "same-fact" | "same-url" | "new-fact-in-story" | "new-story" | "roundup" | "kept" | "standalone" | "manual" | "skipped"
+    | "same-fact" | "same-url" | "same-asset" | "new-fact-in-story" | "new-story" | "roundup" | "kept" | "standalone" | "manual" | "skipped"
     | "signal" | "signal-native" | "signal-unmatched" | "historical";
   factId?: number;
   storyId?: number;
@@ -266,13 +271,16 @@ export async function groupArticle(articleId: string, opts: GroupOptions = {}): 
 
 async function decide(articleId: string, opts: GroupOptions, revision: number, recheckSelection: boolean): Promise<GroupResult> {
   const [a] = await sql<ArticleRow[]>`
-    SELECT a.id, a.revision, a.title, a.url, a.published_at, a.publication_time, a.discovered_at, a.grouped_at, a.body_text, a.x_post, a.backfill,
-           s.id AS source_id, s.name AS source_name, s.signal_group_id, (s.tier = 'T1') AS first_party, s.participation_mode
+    SELECT a.id, a.revision, a.title, a.url, a.published_at, a.publication_time, a.discovered_at, a.grouped_at, a.body_text, a.asset_key, a.x_post, a.backfill,
+           s.id AS source_id, s.name AS source_name, s.signal_group_id, s.tags AS source_tags, (s.tier = 'T1') AS first_party, s.participation_mode
     FROM articles a JOIN sources s ON s.id = a.source_id WHERE a.id = ${articleId}`;
   if (a && a.revision !== revision) throw new GroupingSupersededError("Grouping input changed before it was read");
   if (!a) return { verdict: "skipped" };
   const observedAt = a.published_at ?? a.discovered_at;
   const source = { id: a.source_id, signal_group_id: a.signal_group_id };
+  // The track comes from the article's own source, not from the caller: a receipt and a decision row
+  // must name the wording this article was actually judged under.
+  const track = trackOf(a.source_tags);
 
   // Manual decisions win over any model decision: a manual membership, or "keep standalone".
   const manual = await manualDecision(sql, articleId);
@@ -287,7 +295,10 @@ async function decide(articleId: string, opts: GroupOptions, revision: number, r
     throw new GroupingSupersededError("Current material revision is still waiting for analysis");
   }
   const composite = an?.composite === true;
-  const unsupported = an?.output?.scope === "unknown" && !an.output.fact;
+  // A screenshot plus one line naming a reusable playbook is high-value material on the learning track,
+  // so the "insufficient material" veto does not apply there — the learning wording judges sufficiency
+  // itself and answers `miss` for a post with no text. The news track keeps the veto exactly as it was.
+  const unsupported = track !== "learning" && an?.output?.scope === "unknown" && !an.output.fact;
   const historical = isHistorical(a);
   const left = composite || unsupported || historical
     ? await sql.begin(async (tx) => { await lockCurrentRevision(tx, articleId, a.revision); return resetAutomatic(tx, articleId); })
@@ -329,19 +340,21 @@ async function decide(articleId: string, opts: GroupOptions, revision: number, r
   };
   const newTitle = String(frame?.title || title).slice(0, 60);
 
-  const { sameUrl, referenced } = await relatedPosts(a);
-  // The URL settles identity, but an unseen fact still needs its first reading-value decision.
-  const selectedSameUrl = sameUrl && !composite && !kept && (await candidateViews([{
-    factId: sameUrl.fact_id, storyId: sameUrl.story_id, factTitle: sameUrl.fact_title, score: 1,
+  const { sameUrl, sameAsset, referenced } = await relatedPosts(a);
+  // A shared page URL and a shared asset key both settle identity without asking the model again; an
+  // unseen fact still needs its first reading-value decision.
+  const same = sameUrl ?? sameAsset;
+  const selectedSame = same && !composite && !kept && (await candidateViews([{
+    factId: same.fact_id, storyId: same.story_id, factTitle: same.fact_title, score: 1,
   }]))[0]?.selected === true;
-  const cands = selectedSameUrl ? [] : await candidateViews(await recallFacts(articleId,
-    reportText(title, an.summary_zh), RECALL_MIN_COSINE, RECALL_TOP_FACTS, [...referenced, ...(sameUrl ? [sameUrl] : [])]));
-  const reading = selectedSameUrl ? [] : await recallSelectedBackground(articleId, reportText(title, an.summary_zh), RECALL_MIN_COSINE, cands.map(c => c.factId));
+  const cands = selectedSame ? [] : await candidateViews(await recallFacts(articleId,
+    reportText(title, an.summary_zh), RECALL_MIN_COSINE, RECALL_TOP_FACTS, [...referenced, ...(same ? [same] : [])]));
+  const reading = selectedSame ? [] : await recallSelectedBackground(articleId, reportText(title, an.summary_zh), RECALL_MIN_COSINE, cands.map(c => c.factId));
   let verdicts = new Map<number, Verdict>();
   let selection = NO_SELECTED_COVERAGE;
   const receipts: number[] = [];
   if (cands.length || reading.length) {
-    const judged = await judgeBatch(articleId, { ...query, sourceText: a.body_text }, cands, reading);
+    const judged = await judgeBatch(articleId, track, { ...query, sourceText: a.body_text }, cands, reading);
     verdicts = judged.verdicts;
     selection = judged.selection;
     receipts.push(judged.receiptId);
@@ -392,10 +405,10 @@ async function decide(articleId: string, opts: GroupOptions, revision: number, r
   let factId: number | null = null;
   let storyId: number | null = null;
 
-  if (sameUrl) {
-    verdict = "same-url";
-    factId = sameUrl.fact_id;
-    storyId = sameUrl.story_id;
+  if (same) {
+    verdict = sameUrl ? "same-url" : "same-asset";
+    factId = same.fact_id;
+    storyId = same.story_id;
   } else {
     if (cands.length) {
       for (const pick of sameOccurrence(cands, verdicts)) {
@@ -403,7 +416,7 @@ async function decide(articleId: string, opts: GroupOptions, revision: number, r
           factId = pick.factId;
           break;
         }
-        const review = await confirmMerge(articleId, query, pick);
+        const review = await confirmMerge(articleId, track, query, pick);
         receipts.push(review.receiptId);
         if (review.relation === "SAME_OCCURRENCE") {
           factId = pick.factId;
@@ -432,10 +445,10 @@ async function decide(articleId: string, opts: GroupOptions, revision: number, r
   const decisionCandidates: DecisionCandidate[] = cands.map((c) => ({
     id: c.factId, score: Math.round(c.score * 1000) / 1000, relation: verdicts.get(c.factId)?.relation, confidence: verdicts.get(c.factId)?.confidence,
   }));
-  if (sameUrl) decisionCandidates.push({ id: sameUrl.fact_id, score: 1, relation: "SAME_OCCURRENCE", confidence: 1 });
+  if (same) decisionCandidates.push({ id: same.fact_id, score: 1, relation: "SAME_OCCURRENCE", confidence: 1 });
   // Only a fact already shown in selected has a representative slot to replace. A duplicate of
   // an unselected fact must retain the value judgement, including a prior low-increment rejection.
-  if ((verdict === "same-fact" || verdict === "same-url") && (selectedSameUrl || cands.some(c => c.factId === factId && c.selected))) {
+  if ((verdict === "same-fact" || verdict === "same-url" || verdict === "same-asset") && (selectedSame || cands.some(c => c.factId === factId && c.selected))) {
     selection = { addsValue: true, reason: "同一新闻的代表报道候选" };
   }
 
@@ -474,7 +487,7 @@ async function decide(articleId: string, opts: GroupOptions, revision: number, r
   for (const c of cands) if (firmlyTied(verdicts.get(c.factId)?.relation, verdicts.get(c.factId)?.confidence)) tied.add(c.storyId);
   if (tied.size > 1) {
     try {
-      result.consolidated = await consolidate([...tied]);
+      result.consolidated = await consolidate([...tied], track);
       result.storyId = (await liveStory(written.storyId!)) ?? written.storyId!;
     } catch (error) {
       result.consolidationError = String(error).slice(0, 300);
@@ -537,22 +550,26 @@ const signalText = (a: { title: string; body_text: string | null }) => reportTex
  * grouped again; each is judged the usual way, against all candidates.
  */
 async function rematchSignals(articleId: string, queryText: string): Promise<number> {
-  if (!embeddingsAvailable()) return 0;
-  const mine = (await vectorsFor([{ id: articleId, text: queryText }])).get(articleId);
-  if (!mine) return 0;
   const posts = await sql<{ id: string; title: string; body_text: string | null }[]>`
     SELECT a.id, a.title, a.body_text FROM articles a JOIN sources s ON s.id = a.source_id
     WHERE a.discovered_at > now() - make_interval(hours => ${REMATCH_HOURS}) AND ${unattachedSignal}`;
-  const vectors = await vectorsFor(posts.map((p) => ({ id: p.id, text: signalText(p) })));
-  let close = 0;
-  for (const p of posts) {
-    const v = vectors.get(p.id);
-    if (!v || cosine32(mine, v) < SIGNAL_MIN_COSINE) continue;
-    // A post still waiting in the queue keeps that job (same key): it will meet the new fact anyway.
-    await enqueue(QUEUES.group, { articleId: p.id, signalOnly: true }, { singletonKey: p.id, priority: groupingPriority({ signal: true, historical: false }) });
-    close += 1;
+  let close: string[];
+  if (embeddingsAvailable()) {
+    const mine = (await vectorsFor([{ id: articleId, text: queryText }])).get(articleId);
+    if (!mine) return 0;
+    const vectors = await vectorsFor(posts.map((p) => ({ id: p.id, text: signalText(p) })));
+    close = posts.filter((p) => {
+      const vector = vectors.get(p.id);
+      return vector && cosine32(mine, vector) >= SIGNAL_MIN_COSINE;
+    }).map((p) => p.id);
+  } else {
+    close = [...lexicalScores(queryText, new Map(posts.map((p) => [p.id, signalText(p)]))).keys()];
   }
-  return close;
+  for (const id of close) {
+    // A post still waiting in the queue keeps that job (same key): it will meet the new fact anyway.
+    await enqueue(QUEUES.group, { articleId: id, signalOnly: true }, { singletonKey: id, priority: groupingPriority({ signal: true, historical: false }) });
+  }
+  return close.length;
 }
 
 /**
@@ -579,7 +596,6 @@ async function groupSignal(a: ArticleRow, source: { id: string; signal_group_id:
     const target = referenced[0]!;
     return write({ factId: target.fact_id, storyId: target.story_id }, "signal-native", [{ id: target.fact_id, score: 1, relation: "SAME_STORY", confidence: 1 }]);
   }
-  if (!embeddingsAvailable()) return { verdict: "signal-unmatched" };
   const recalled = await recallFacts(a.id, signalText(a), SIGNAL_MIN_COSINE, SIGNAL_TOP_FACTS);
   if (recalled.length === 0) {
     // Recorded, so a post that found nothing is told apart from one never decided.

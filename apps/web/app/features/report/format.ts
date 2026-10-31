@@ -1,6 +1,6 @@
 // Names, dates and grouping for daily, weekly and monthly reports.
 import { REPORT_NAMES, type ReportNavigationEntry, type ReportKind } from "@aihot/contracts/site";
-import { beijingDate, beijingWeekday, isoWeekLabel, isoWeekRange, monthDay as engineMonthDay } from "@aihot/contracts/time";
+import { beijingDate, beijingTime, beijingWeekday, isoWeekLabel, isoWeekRange, monthDay as engineMonthDay } from "@aihot/contracts/time";
 import { EDITION_WHEN, REPORTS, SITE, subjectAfter } from "@aihot/site";
 import { RELEASE } from "@aihot/industry/taxonomy";
 import { monthDay, weekdayShort } from "../../lib/format.ts";
@@ -27,11 +27,16 @@ const { measure, noun } = REPORTS.entry;
 /** "件大事": what an issue counts its entries in, in the site's words (REPORTS.entry). */
 export const ENTRIES_UNIT = `${measure}${noun}`;
 
-/** "这一天的 4 件 AI 大事" / "本周的 12 件 AI 大事" / "8 月的 20 件 AI 大事" (the subject and REPORTS.entry from site/site.ts). */
+/** "本期的 4 件 AI 大事" / "本周的 12 件 AI 大事" / "8 月的 20 件 AI 大事" (the subject and REPORTS.entry from site/site.ts). */
 export function headline(kind: ReportKind, key: string, count: number): string {
-  if (kind === "daily") return subjectAfter(`这一天的 ${count} ${measure}`, noun);
+  if (kind === "daily") return subjectAfter(`本期的 ${count} ${measure}`, noun);
   if (kind === "weekly") return subjectAfter(`本周的 ${count} ${measure}`, noun);
   return subjectAfter(`${Number(key.slice(5, 7))} 月的 ${count} ${measure}`, noun);
+}
+
+/** The issue's own saved window, so a historical 08:00 edition is not relabelled as a natural-day one. */
+export function windowLine(start: string, end: string): string {
+  return `收录北京时间 ${beijingDate(start)} ${beijingTime(start)} — ${beijingDate(end)} ${beijingTime(end)}（不含终点）`;
 }
 
 /** "09.16" for a story inside a week or month. */

@@ -6,8 +6,8 @@ import { SITE, subjectAfter } from "@aihot/site";
 import { beijingTime } from "@aihot/contracts/time";
 import { cachedPage, loadOr404 } from "../lib/api.server";
 import { pageReuse } from "../lib/page-reuse";
-import { filterParams, hasFeedFilters, itemListLd, listPath, pageMeta, readFilters } from "../lib/seo";
-import { ActiveFilters, CategoryTabs, FeedBar, SearchField } from "../features/feed/Filters";
+import { filterLabels, filterParams, hasFeedFilters, itemListLd, listPath, pageMeta, readFilters } from "../lib/seo";
+import { ActiveFilters, FeedBar, FilterMenus, SearchField } from "../features/feed/Filters";
 import { PillTabs } from "../components/ui/Tabs";
 import { DayList, Pagination } from "../features/feed/DayList";
 import { EmptyState } from "../components/ui/Page";
@@ -44,7 +44,8 @@ export function meta({ loaderData }: Route.MetaArgs) {
   const q = f?.q;
   const page = loaderData?.data.page ?? 1;
   const path = listPath("/all", { ...(f && filterParams(f)), q, tab: q && f?.tab === "relevance" ? "relevance" : null, page: page > 1 ? page : null });
-  const title = `${q ? `搜索：${q}` : ALL_TITLE}${page > 1 ? ` · 第 ${page} 页` : ""}`;
+  const filteredName = f ? filterLabels(f).join(" · ") : "";
+  const title = `${q ? `搜索：${q}` : filteredName || ALL_TITLE}${page > 1 ? ` · 第 ${page} 页` : ""}`;
   const noindex = !!q || hasFeedFilters(f);
   return pageMeta({
     title,
@@ -72,8 +73,7 @@ export default function AllPage() {
   const navigation = useNavigation();
   const f = data.filters;
   const busy = navigation.state === "loading" && navigation.location?.pathname === "/all";
-  const { channel, category } = filterParams(f);
-  const keep = { channel, category };
+  const keep = filterParams(f);
   const searchTabHref = (tab: "time" | "relevance") => {
     const sp = new URLSearchParams(params);
     sp.delete("page");
@@ -81,7 +81,8 @@ export default function AllPage() {
     else sp.delete("tab");
     return `/all?${sp}`;
   };
-  const title = f.q ? `搜索“${f.q}”` : f.tag ? `#${f.tag}` : null;
+  const filteredName = filterLabels(f).join(" · ");
+  const title = f.q ? `搜索“${f.q}”` : filteredName || null;
   const updated = beijingTime(data.freshness);
   // Searches are remembered in this browser for the phone search (listed in the privacy notice).
   useEffect(() => {
@@ -106,15 +107,15 @@ export default function AllPage() {
           }
         />
       ) : (
-        <FeedBar base="/all" category={f.category} channel={f.channel} />
+        <FeedBar base="/all" filters={f} />
       )}
-      <ActiveFilters base="/all" category={f.category} channel={f.channel} tag={f.tag} />
+      <ActiveFilters base="/all" filters={f} />
 
       {/* Desktop, as on 精选: the title, then one filter row with the search field aligned on the right. */}
       <div className="hidden lg:block">
         <h1 className="text-[24px] font-semibold leading-[1.3] text-ink">{title ?? ALL_TITLE}</h1>
-        <div className="mb-5 mt-4 flex items-center justify-between gap-4">
-          <CategoryTabs base="/all" category={f.category} channel={f.channel} layoutId="all-cat-desk" className="min-w-0" />
+        <div className="mb-5 mt-4 flex flex-wrap items-center justify-between gap-3">
+          <FilterMenus base="/all" filters={f} className="min-w-0" />
           <SearchField defaultValue={f.q ?? ""} keep={keep} />
         </div>
       </div>

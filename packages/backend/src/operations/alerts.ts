@@ -367,6 +367,7 @@ async function dailyReportFindings(now: number, open: AlertState): Promise<Findi
   for (let date = from; date <= today; date = addDays(date, 1)) {
     if (date >= start) dates.add(date);
   }
+  // Coverage closes at midnight, but the issue is still due at its 08:00 edition time and alerts two hours later.
   const overdue = [...dates].filter(date => now >= beijingAt(date, EDITION_TIMES.daily).getTime() + 2 * 3600_000).sort();
   if (!overdue.length) return [];
   const published = new Set((await sql<{ key: string }[]>`SELECT key FROM reports WHERE kind = 'daily' AND key IN ${sql(overdue)}`).map(r => r.key));

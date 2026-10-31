@@ -1,4 +1,5 @@
 // Publication rules. Each rule is defined once here and used by every exit.
+import type { PlatformKey } from "@aihot/contracts/taxonomy";
 import { serverModules } from '../modules.ts';
 
 /** Presentation exceptions never alter scoring, selection eligibility or fact membership. */
@@ -23,6 +24,41 @@ export interface SourceFacts {
 
 export function channelOf(sourceKind: string, hasXPost: boolean): "x" | "news" {
   return sourceKind === "x_search" || hasXPost ? "x" : "news";
+}
+
+/** Article hosts that name a platform, anchored after the scheme so a path cannot fake one. */
+const WECHAT_HOST = /^https?:\/\/mp\.weixin\.qq\.com(\/|$)/i;
+const YOUTUBE_HOST = /^https?:\/\/([a-z0-9-]+\.)*(youtube\.com|youtu\.be)(\/|$)/i;
+const BILIBILI_HOST = /^https?:\/\/([a-z0-9-]+\.)*(bilibili\.com|b23\.tv)(\/|$)/i;
+
+/** One report's platform; `all` is a filter value, never stored. */
+export type Platform = Exclude<PlatformKey, "all">;
+
+/** The platform a module names for a source of its own (ServerModule.platforms). */
+function declaredPlatform(sourceId: string | undefined): Platform | undefined {
+  if (!sourceId) return undefined;
+  for (const m of serverModules()) {
+    for (const [platform, ids] of Object.entries(m.platforms ?? {})) if ((ids ?? []).includes(sourceId)) return platform as Platform;
+  }
+  return undefined;
+}
+
+/**
+ * Where a report came from, decided once at publish time and stored on it (publications.platform),
+ * because a platform no address or account kind reveals still has to be expressible: a module names the
+ * platform of the sources it brings, whose reports carry an upstream's addresses rather than its own.
+ * X is the post channel: an X post linking a YouTube video stays X. 公众号 is a WeChat account source
+ * or a WeChat-hosted article. YouTube and Bilibili are their article hosts, so a video channel delivered
+ * as RSS is still them. Everything else is a website/RSS.
+ */
+export function platformOf(sourceKind: string, channel: "news" | "x", url: string, sourceId?: string): Platform {
+  const declared = declaredPlatform(sourceId);
+  if (declared) return declared;
+  if (channel === "x") return "x";
+  if (sourceKind === "mp_account" || WECHAT_HOST.test(url)) return "wechat";
+  if (YOUTUBE_HOST.test(url)) return "youtube";
+  if (BILIBILI_HOST.test(url)) return "bilibili";
+  return "web";
 }
 
 /** Public pool (/all): editorial sources, AI relevant, with usable copy or an original post. */

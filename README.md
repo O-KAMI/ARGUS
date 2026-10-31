@@ -1,187 +1,173 @@
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/banner-dark.png">
-    <img src="docs/assets/banner-light.png" alt="AIHOT：每个行业，都可以有自己的 AIHOT。很多条信源流进中间的精选，再分给法律、人力资源、金融等各个行业" width="100%">
-  </picture>
-</p>
+# ARGUS
 
-<p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-176b75?style=flat-square" alt="MIT License"></a>
-  <img src="https://img.shields.io/badge/Node.js-24-176b75?style=flat-square&logo=nodedotjs&logoColor=white" alt="Node.js 24">
-  <img src="https://img.shields.io/badge/PostgreSQL-17-176b75?style=flat-square&logo=postgresql&logoColor=white" alt="PostgreSQL 17">
-  <img src="https://img.shields.io/badge/Docker-Compose-176b75?style=flat-square&logo=docker&logoColor=white" alt="Docker Compose">
-  <a href="https://aihot.news"><img src="https://img.shields.io/badge/%E7%BA%BF%E4%B8%8A%E5%8E%9F%E7%AB%99-aihot.news-202a30?style=flat-square" alt="线上原站 aihot.news"></a>
-</p>
+**AI Intelligence & Knowledge Hub · AI 情报与知识中枢**
 
-<p align="center">
-  <b>一个自己找热点、自己写日报的网站框架。</b><br>
-  把信源换成你的，把精选标准换成你的 KnowHow，它就是你的行业热点站。
-</p>
+> 观世界 · 见未来
+>
+> 从纷繁信息中，发现真正重要的内容。
 
-<p align="center">
-  <b>简体中文</b> · <a href="README.en.md">English</a>
-</p>
+ARGUS 是一个个人优先、默认私有的 AI 情报站：持续追踪官方博客、技术社区、开源仓库与指定账号，把分散内容标准化、去重、评分、翻译与聚类，每天早上 08:00 出一份中文日报，并按主题沉淀为可检索的长期知识库。
 
-<p align="center">
-  <a href="#跑起来">跑起来</a> ·
-  <a href="docs/customize.md">改成你的行业</a> ·
-  <a href="#它是怎么工作的">它是怎么工作的</a> ·
-  <a href="#文档">文档</a> ·
-  <a href="https://github.com/KKKKhazix/AIHOT/discussions">社区交流</a>
-</p>
+- 品牌与 UI 规范：与本仓库同级的开发交付包中的 `design.md`
+- 开发方案：同一交付包中的 `ARGUS_最终版开发方案.md`
+- 上游框架与基线说明：[`docs/upstream-aihot-readme.md`](docs/upstream-aihot-readme.md)
+- 本阶段交付记录：[`docs/argus-phase1.md`](docs/argus-phase1.md)、[`docs/argus-phase2.md`](docs/argus-phase2.md)
 
-<br>
+## 已实现（Phase 1）
 
-## 这是什么
+- **东方水墨 / 自然编辑风**：暖纸白、墨色文字、低饱和印章红；衬线品牌标题与克制的山水纹理。
+- **ARGUS 品牌资产**：圆形观测之眼 + 层叠山峦矢量 Logo、favicon、512/192/180 px 图标、字标组件。
+- **首页品牌首屏**：主标语、辅助文案与今日内容入口；不占用主要阅读区域。
+- **私有访问**：默认需要访问密码登录；网页、RSS、公开 API、MCP、站点地图、分享图与媒体出口全部在服务端校验会话。
+- **导航与 IA**：首页、全部情报、热点、AI 日报、主题知识库、收藏与待读、Agent 接入、关于、更新日志、反馈、账户。
+- **AI 主题**：Vibe Coding、Agent / Skills / MCP、UI/UX、RAG、推理、多模态、开源、论文、行业趋势等主题页。
+- **三组内容筛选**：首页和全部情报都能按内容类型、技术方向、来源（X / 行业镜像 / YouTube / Bilibili / 公众号 / GitHub / 知识星球 / 网站）组合筛选，选中结果写进网址。
+- **首批信源**：23 个公开 RSS（官方博客、arXiv、Hacker News、LangChain、Vercel 等），字段与分级沿用框架。
+- **安全**：密码只存服务端；日志脱敏；私有页面 `no-store` + `noindex`；SSR 使用独立内部令牌访问 API。
 
-[AIHOT](https://aihot.news) 是我做的一个 AI 热点网站。它每天从一批信源里收资料，用大模型先筛一遍、再独立打两次分，挑出真正值得看的，写成中文标题和摘要；把不同来源说的同一件事聚成一个事件，按有多少人在说排出热点；每天早上出一份日报。
+## 技术栈
 
-这个仓库是它的引擎和框架：网站、后台、精选流程、聚簇和热度算法，**所有提示词的原文和入选门槛**，都在这里。
+Node.js 24+ · TypeScript · React Router（SSR）· Fastify · PostgreSQL 17 · pg-boss · Tailwind CSS · Docker Compose。
 
-## 为什么开源
+三个进程：
 
-这半年，很多做法律、做 HR、做金融、做贵金属的朋友问我，能不能也给他们的行业做一个。
+| 进程 | 位置 | 职责 |
+|---|---|---|
+| web | `apps/web` | 页面渲染，只通过 HTTP 读 api |
+| api | `apps/api` | 站点接口、公开 API、RSS、MCP、后台、媒体 |
+| worker | `apps/worker` | 采集、模型处理、聚类、热度、日报 |
 
-我做不了。我不懂你们的行业，不知道哪些信源有用，也不知道什么样的消息，对你们来说才叫热点。
+## 本地运行
 
-但你们懂。
-
-既然我没办法满足所有人，那就把火种交到大家自己手上。
-
-## 说在前面
-
-- **我不是专业的开发者。** 我是设计师出身，半年前还看不太懂代码。这套代码是我和 AI 一起重写的，比以前干净了很多，但一定还有写得不好的地方。发现问题欢迎提 Issue，我不一定能很快回复，先说声抱歉。
-- **这是 AIHOT 的引擎。** 它和 AIHOT 线上跑的是同一份引擎代码，同步时直接从线上导出，不是精心打磨的通用框架。以后 AIHOT 的更新，我会尽量同步过来，但没法保证每一次都同步。模型榜、Codex 重置监控、主题页的大事记这些只对 AI 行业有意义的功能，以及 AIHOT 自己的运营工具，只留在 AIHOT 上。
-- **里面没有 AIHOT 的信源名单和运营数据。** 仓库带了 18 个公开的海外 AI 资讯源做示范，够你跑起来看效果；真正的信源，要换成你自己行业的。
-- **请不要用 AIHOT 的名字和 Logo。** 换上你自己的名字，它就是你的站。
-
-## 它是怎么工作的
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/how-dark.png">
-  <img src="docs/assets/how-light.png" alt="六步：采集、预筛、两次评分、写作、聚簇、热点与成刊" width="100%">
-</picture>
-
-一条资料从信源进来，先判重，再预筛；可能重要的独立打两次分，写好中文标题和摘要，和别的报道聚成事件，算进热度。X 帖子没有正文或只有链接时，保留原帖的链接和图片，不调用写作或翻译模型。分数过了门槛、又不是精选里已有新闻的重复，才进精选；日报按规则编出当天要闻，周报、月报再从日报里汇编。每一步的提示词都在 [`industry/prompts/`](industry/prompts/)，改标准不用改代码。详见 [精选与校准](docs/selection.md)。
-
-### 聚簇与热点
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/cluster-dark.png">
-  <img src="docs/assets/cluster-light.png" alt="五个来源的报道聚成一个事件，事件进入当前热点榜" width="100%">
-</picture>
-
-同一件事，官网发一篇、媒体转十篇、X 上吵一天，读者只需要看到一次。AIHOT 把它们聚成一个**事件**：先用标题摘要的向量（没配向量服务时比文字重合度）在最近两周里找候选，再让模型判断是同一件事、后续进展，还是两件事；拿不准的合并，写入前再让模型复核一遍（复核可以单独换一家模型，设 `GROUP_REVIEW_MODEL`）。
-
-**热度**按事件算，不按文章算：48 小时内，每个独立来源只算一次，24 小时减半。重复抓取不会多算，一家媒体发十篇也只算一次，所以排在前面的，是真正有很多人在说的事。
-
-### 速度
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/perf-dark.png">
-  <img src="docs/assets/perf-light.png" alt="AIHOT 线上实测：页面中位数 10 毫秒，95% 在 50 毫秒内；接口中位数 6 毫秒，95% 在 12 毫秒内；文章页 95% 在 14 毫秒内" width="100%">
-</picture>
-
-## 你会得到什么
-
-| | |
-|---|---|
-| **六种信源** | RSS、网页列表、JSON 接口、X 账号、微信公众号，以及你自己脚本推送进来的内容。信源分三级（官方一手、官方账号与准官方、媒体与个人），各级入选门槛不同；抓取频率按产出自动调整 |
-| **精选** | 预筛，同一份评分标准独立打两次分，再按信源分级的门槛决定入选；同一条新闻只占一条，换个说法的重复不进。提示词和门槛全部公开，全部可以改；用你自己标注的样本在 SelectBench 里校准 |
-| **写作** | 中文标题、答案先行的摘要、推荐理由，外文全文翻译；分类、标签和新闻事实单独抽取；防止模型把原文没提到的公司写进标题 |
-| **聚簇** | 不同来源报道的同一件事聚成一个事件，后续进展挂在同一个事件下，事件页有综述；进展和报道时间线可一起切换“最新在前”或“最早在前”；人工改过的归属不会被覆盖 |
-| **热点** | 按事件算热度：独立来源越多越靠前，X 上的讨论也算进来；和 6 小时前比，涨得快的标上升，新出现的标“新” |
-| **日报、周报、月报** | 每天出日报（默认 08:00），按规则编出当天要闻：一件事一条，报过的事只在有新进展时跟进，不调模型。每周一出周报、每月 1 日出月报（默认 10:00、10:30），从日报里汇编，模型只写总述和栏目导读。几点出刊在 `site/site.ts` 的 `EDITION_TIMES` 里改 |
-| **主题与搜索** | 公司、方向、内容形态三类主题页；标题摘要搜索和全文相关搜索 |
-| **阅读设置** | 深浅色外观、网站默认字体或浏览器默认字体；收藏和阅读设置只保存在本机，可以导出、导入备份 |
-| **给 Agent 用** | RSS（精选、全部、全文、日报、周报、月报）、公开 API、MCP、Agent Markdown、`llms.txt`，同一份内容给人看也给 Agent 用 |
-| **后台** | 信源管理与试抓、内容诊断与人工评分更正、精选评测、每一步单独换模型、付费服务的预算熔断、运行记录与告警 |
-
-## 看一眼
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/shots-dark.png">
-  <img src="docs/assets/shots-light.png" alt="首页的每日精选，关于页的信源河" width="100%">
-</picture>
-
-<p align="center"><sub>截图来自用示范信源跑起来的本地站，站名是默认的 MyHOT。</sub></p>
-
-## 跑起来
-
-想创建自己的独立站点，可以先点 [Use this template](https://github.com/KKKKhazix/AIHOT/generate)，再克隆你生成的仓库。想持续合并上游更新或贡献代码，建议先 Fork。下面的命令适合直接试用。
-
-需要 [Docker](https://docs.docker.com/get-started/get-docker/)、[Node.js 24](https://nodejs.org/en/download)（运行 `init-env` 生成配置要用），和一个 OpenAI 兼容的模型 API Key（DeepSeek、千问、智谱都可以）。
-
-`init-env` 默认按 DeepSeek 配置。用千问、智谱等别家，照 `.env.example` 里的例子改 `.env` 的 `LLM_BASE_URL`、`LLM_MODEL` 和 `LLM_EXTRA_JSON`；用推理模型（先想再答）时，还要设 `LLM_REASONING_TOKENS` 给推理留出输出额度。
+需要 Node.js 24+、PostgreSQL 17 和一个 OpenAI 兼容模型 API Key（真正开始采集与生成内容时需要）。
 
 ```bash
-git clone https://github.com/KKKKhazix/AIHOT.git myhot
-cd myhot
+# 1. 配置（生成 .env，含随机会话密钥、内部令牌与访问密码）
 node scripts/init-env.ts --llm-key <你的模型 API Key>
-docker compose up -d --build
+
+# 2. 数据库（示例；也可用 docker compose up -d db）
+#    在 .env 里设置 DATABASE_URL
+node --env-file=.env scripts/migrate.ts
+node --env-file=.env scripts/seed.ts
+
+# 3. 三个进程（另开终端）
+node --env-file=.env apps/api/src/main.ts
+node --env-file=.env apps/web/server.ts
+node --env-file=.env apps/worker/src/main.ts
 ```
 
-打开 <http://localhost:3000>。后台在 `/admin`，管理员密码在 `.env` 的 `ADMIN_PASSWORD` 里。一两分钟后开始有内容，第一次导入的资料大约半小时处理完。
+打开 <http://localhost:3000>，用 `.env` 里的 `ADMIN_PASSWORD` 登录。后台在 `/admin`。
 
-机器上没有 Node、服务器在中国大陆、要配域名和 HTTPS，或者不用 Docker、直接在 Linux、macOS 上跑（Windows 用 WSL2），见 [部署](docs/deploy.md)。
+Docker 部署见 [`docs/deploy.md`](docs/deploy.md)。使用 Docker Compose 时，`PRIVATE_ACCESS` 与 `INTERNAL_TOKEN` 已由 `docker-compose.yml` 透传给 web。
 
-站点跑起来后，打开 `/agent` 可以复制 MCP、RSS 或 API 的接入方式；只能读网页的 Agent 从 `/api/v1/agent` 开始；接口说明在 `/openapi-v1.json`。
+## 私有访问配置
 
-## 把它改成你的行业
+| 变量 | 说明 |
+|---|---|
+| `PRIVATE_ACCESS` | `true` 时所有读者页面、RSS、公开 API、MCP、媒体都需要登录；未设置或留空时默认 `true`。 |
+| `INTERNAL_TOKEN` | web 与 api 之间的 SSR 共享密钥，至少 32 位；`init-env` 先生成它，再启用私有访问。 |
+| `ADMIN_PASSWORD` | 访问密码，同时用于 `/admin`；至少 12 位。 |
 
-最省事的办法：打开你的 Agent（Claude Code、Codex 都可以），把这个仓库交给它，然后说：
+关闭私有模式（恢复匿名阅读）时设置 `PRIVATE_ACCESS=false`，并同步调整 `site/public/robots.txt` 与隐私说明。
+
+
+## 模型配置
+
+ARGUS 通过 OpenAI 兼容接口调用模型。生产配置示例（密钥只写 `.env`，不提交）：
+
+```env
+LLM_BASE_URL=http://llm-model-hub-apis.sf-express.com/v1
+LLM_API_KEY=<SF 模型网关密钥>
+LLM_MODEL=tencentcloud/deepseek-v4.1-flash-1017
+LLM_VISION=true
+LLM_REASONING_TOKENS=8000
+LLM_EXTRA_JSON={}
+```
+
+`LLM_REASONING_TOKENS` 是给推理过程额外留的输出额度；推理模型输出被截断（`finish_reason=length`）时调大它。页面访问不会调用模型，模型只在 worker 的任务里运行。
+
+## X（推特）接入
+
+X 信源不需要 X 账号密码或 Cookie，抓取按 **FxTwitter → SocialData** 两层回退，优先使用免费来源：
+
+| 层 | 来源 | 计费 | 说明 |
+|---|---|---|---|
+| 1 | FxTwitter 公开 API | 免费、无 key | 账号最新一页（约 20 条），含原创、转帖原帖、引用和媒体 |
+| 2 | SocialData 搜索 | 按返回对象计费 | 免费层失败时的兜底，受后台 `budgets.socialdata` 限制 |
+
+1. 批量导入你关注的账号（这一步用 SocialData 读 following 列表）：
+
+```bash
+node --env-file=.env scripts/import-x-following.ts --user @你的X账号 --dry-run   # 先看会创建多少
+node --env-file=.env scripts/import-x-following.ts --user @你的X账号
+```
+
+脚本会读取该账号的 following 列表，为每个账号创建一个 `x_search` 信源（`provider=fxtwitter`、`from:handle -filter:replies`、T2、editorial）。`--limit N` 可先导入前 N 个，`--hot-signal` 只作热度证据不进入精选。脚本自身按 20 秒/次限速，余额为 0 会直接退出，避免误扣。
+
+FxTwitter 不需要 key，默认 `https://api.fxtwitter.com`；只有自建实例时才需要在 `.env` 设置 `FXTWITTER_BASE_URL`。它会对存在的页面偶发 404，采集器会重试后再决定是否落到 SocialData。转帖会收录被转的原帖（保留原作者、正文和媒体）；信源允许全文展示时，站点会显示“由 @xxx 转发”（当前 X 源为摘要模式，因此默认不显示）。X 长文（Article）也优先从 FxTwitter 的 `/status/{id}` 免费读取。
+
+SocialData 仍然**没有可用的免费层**（2026-10-30 实测：20 条搜索扣 US$0.004，同一分钟 3 次短语搜索也按返回对象计费），所以它只作第 2 层和长文兜底；所有付费请求受后台 `budgets.socialdata` 限制（当前 **3/分钟、40/小时、100/天**，满额约 US$0.40/天），后端不写死任何上限。
+
+RSS 仍是可用的信源类型（后台可加，`scripts/probe-rss.ts` 可手动探活，worker 每天 **04:30 北京时间**对当时所有 `kind='rss'` 的源跑一次探活：失效的 feed 会自动从同站首页/常见路径找新地址，网络不可达保留原地址、下一轮继续重试）。**本站当前没有配置任何 RSS 源**——行业新闻改由 AIHOT 镜像提供，X 账号不再有 RSS 第二层。
+
+主题分类由模型按 `industry/taxonomy.ts` 的标签词表和 `industry/prompts/` 的提示词自动完成，可在 `industry/topics.json` 与后台“内容诊断”里人工微调。
+
+## 内容筛选（精选 / 全部）
+
+首页和“全部情报”共用同一套筛选，三个菜单可以任意组合。选中的结果写进网址，刷新、分享和切换精选/全部都不会丢：
+
+| 参数 | 菜单 | 取值（网址参数） | 数据来源 |
+|---|---|---|---|
+| `genre` | 内容类型 | `教程/实践`、`模型发布`、`大佬观点`、`产品更新`、`现象/趋势`、`行业动态`、`论文/研究`、`评测/基准`、`政策/监管`、`开源/仓库`、`Skill/Agent 玩法`、`MCP/工具`、`开源生态`、`AI 编程`、`AI 变现/FDE`、`AI UI/设计`、`原理/机制`、`知识库`、`AI 视频`、`教材/课程`、`新玩法灵感`、`信息差` | `publications.tags` 里的类别标签 |
+| `field` | 技术方向 | `Agent`、`编码`、`推理`、`多模态`、`语音`、`视频`、`图像生成`、`RAG`、`端侧`、`数据/训练`、`搜索`、`部署/工程`、`开源生态`、`具身智能`、`MCP/工具调用`、`设计/交互` | `publications.tags` 里的技术方向标签 |
+| `platform` | 来源 | `x`、`aihot`、`youtube`、`bilibili`、`wechat`、`github`、`zhishixingqiu`、`web` | 发布时写进 `publications.platform` 的存储列 |
+
+表格列的是网址里的参数值；菜单文案可能更短（例如 `现象/趋势` 显示为“行业趋势”，`Agent` 显示为“Agent / Skills”，`aihot` 显示为“行业镜像”），以 `packages/contracts/src/taxonomy.ts` 为准。
+
+内容类型后十二项与学习轨的内容类型（`industry/taxonomy.ts` 里 kind 与分类标签的对应表）一一对应，词表、`GENRE_FILTERS` 和提示词三处一起改。`开源/仓库` 指某个具体项目的发布，`开源生态` 指盘点、选型与趋势。
+
+来源判定不靠模型，发布时算一次存进 `publications.platform`（`packages/backend/src/publication/rules.ts` 的 `platformOf`），读取面只比较这一列，不在查询里重复推导：
+
+- `x`：`publications.channel = 'x'`；X 帖子即使外链 YouTube，也只算 X。
+- `wechat`：信源 `kind = 'mp_account'`，或文章 URL 主机是 `mp.weixin.qq.com`。
+- `youtube` / `bilibili`：新闻渠道的文章 URL 主机分别为 `youtube.com` / `youtu.be` 与 `bilibili.com` / `b23.tv`（含子域名）。
+- `web`：其余新闻 / RSS；只是 URL 路径里出现 `youtube.com` 字样的不算 YouTube。
+- `aihot` / `github` / `zhishixingqiu`：地址和信源类型都推不出来，由写入这条内容的一方（镜像模块等）直接给出。
+- 加列之前发布的行由 `scripts/backfill-publications-platform.ts` 按同一套规则分批回填；没有回填的行只出现在“全部来源”里。
+- “一手（官方）”不是 `platform`，仍是原来的 `channel=firstParty`；来源菜单里二选一，选平台会清掉 `channel`，反过来也一样。
+
+例子：
 
 ```text
-请读 AGENTS.md 和 docs/customize.md，把这个站改成「XX 行业」的热点站。
-我关心的是：……（写你想盯的信源、你觉得什么消息重要、什么不重要，越具体越好）。
-改完帮我跑 npm run typecheck、npm test 和 node scripts/smoke.ts，并告诉我还需要我自己决定哪些事。
+/all?genre=教程/实践&field=Agent
+/all?platform=x
+/?platform=youtube&genre=模型发布
 ```
 
-要改的东西几乎都在 [`site/`](site/) 和 [`industry/`](industry/) 这两个文件夹里，代码基本不用动：
+目前还没有公众号、YouTube、Bilibili、行业镜像、GitHub、知识星球信源，选这几项会如实显示空态，不会隐藏选项。新增筛选项时，选项表在 `packages/contracts/src/taxonomy.ts`；三个读取面（timeline、pool、group reports）和网页端的 `readFilters` / `filterParams` / `filterLabels` 要一起改，回归测试在 `tests/feed-filters.test.ts`。
 
-| 文件 | 改什么 |
+## 检查
+
+```bash
+npm run typecheck
+DATABASE_URL=postgres://…/<名字>_test npm test          # 库名以 _test 或 _ci 结尾
+npm run build -w @aihot/web && node --test apps/web/tests/*.test.ts
+# 私有模式下 smoke 需要会话 Cookie：
+SMOKE_COOKIE="aihot_admin=…" node scripts/smoke.ts --base http://127.0.0.1:3000
+```
+
+## 目录
+
+| 位置 | 内容 |
 |---|---|
-| `site/site.ts` | 站名、行业词、出刊时间、首页文案、关于页、条目与日报周报月报上的说法、公开接口的分类 |
-| `industry/taxonomy.ts`、`industry/topics.json` | 分类、标签、主题 |
-| `industry/sources.json` | 首次启动时导入的信源 |
-| `industry/prompts/` | 精选标准和写作要求。**你的行业 KnowHow，就写在这里** |
-| `industry/selection.ts` | 入选门槛 |
-| `site/models.ts` | 每一步默认用哪个模型（不改也行：都用 `.env` 里配的那一个） |
-| `site/brand/`、`site/pages/`、`site/public/`、`site/changelog.json` | 图标与 Logo，使用规则和隐私说明，`robots.txt` 这类发布在网站根目录的文件，更新日志 |
-| `modules/` | 框架里没有、只有你的站要的功能，做成模块放在这里，见 [架构](docs/architecture.md#模块) 的“模块” |
+| `site/` | 站名文案、品牌与 Logo、条款页、根目录固定文件、更新日志、模块清单 |
+| `industry/` | 分类、主题、示范信源、提示词、入选门槛 |
+| `apps/` | web / api / worker 三个进程 |
+| `packages/backend/` | 采集、内容、编辑、事件、公开读取层、日报、任务 |
+| `database/migrations/` | 数据库迁移（按文件名排序执行） |
+| `tests/` | 后端测试 |
+| `docs/` | 上游文档、本阶段交付记录、部署与架构说明 |
 
-最值得花时间的是评分标准（`industry/prompts/selection-score.md`）和门槛：拿一两百条你自己标注过的资料，用 `scripts/eval-selection.ts` 跑一遍，看它选得准不准，再回去改。怎么做写在 [精选与校准](docs/selection.md) 里。
+## 许可与来源
 
-## 文档
-
-| 文档 | 内容 |
-|---|---|
-| [把它改成你的行业](docs/customize.md) | 站名、分类、主题、信源、提示词、门槛、模型、品牌，一步一步来 |
-| [信源](docs/sources.md) | 六种信源怎么配，分级和全文，抓取频率，旧文和存档，固定起点 `publishedAfter`，外部推送接口 |
-| [精选与校准](docs/selection.md) | 一条资料怎么变成精选、怎么编进日报周报月报，怎么用自己的样本校准 |
-| [事件归组与关系评测](docs/grouping.md) | 事件关系怎么判断，怎么用自己标注的成对样本评测 |
-| [综述评测](docs/story-digest-evaluation.md) | 改事件综述提示词前，怎么在同一批事件上并排比较 |
-| [部署](docs/deploy.md) | Docker、域名和 HTTPS、中国大陆、更新、备份、花多少钱，不用 Docker 时在 Linux、macOS（Windows 用 WSL2）上怎么跑 |
-| [架构](docs/architecture.md) | 三个进程、几条不变的规则、目录、模块、数据库迁移、对外出口、测试 |
-
-技术栈：Node.js 24 · TypeScript · React Router（服务端渲染）· Fastify · PostgreSQL · pg-boss · Tailwind CSS · Docker Compose。
-
-## 交流与贡献
-
-部署和使用问题到 [问答区](https://github.com/KKKKhazix/AIHOT/discussions/categories/q-a)，新想法到 [想法交流区](https://github.com/KKKKhazix/AIHOT/discussions/categories/ideas)，欢迎在 [作品展示区](https://github.com/KKKKhazix/AIHOT/discussions/categories/show-and-tell) 分享你做出的行业热点站。
-
-发现 Bug 或有明确的功能建议，可以 [提交 Issue](https://github.com/KKKKhazix/AIHOT/issues/new/choose)。准备改代码前，先看 [贡献说明](CONTRIBUTING.md)；安全漏洞请走 [私密报告入口](SECURITY.md)。
-
-## 最后
-
-AIHOT 曾经只是我无数个深夜里，一个很小、很小的念头。
-
-我不知道它会被改成什么样子，会走到多远的地方。但这可能就是开源最浪漫的地方。
-
-剩下的路，就交给你们了。
-
-<p align="right">—— 数字生命卡兹克</p>
-
-## 许可
-
-代码使用 [MIT 许可证](LICENSE)。AIHOT 的名字和 Logo 不在许可范围内。字体有自己的许可，见 [NOTICE](NOTICE)。
+代码沿用上游 **AIHOT** 开源框架（MIT，见 [`LICENSE`](LICENSE)）改造；ARGUS 的品牌、文案与视觉资产为本项目所有。原文版权归各来源，本站默认只展示摘要与原文链接。

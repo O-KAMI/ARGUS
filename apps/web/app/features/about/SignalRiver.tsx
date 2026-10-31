@@ -1,16 +1,8 @@
-// The about page's river. Every line is one of the site's real sources (hover names it). Lines run in
-// from the left, gather into bundles (many reports of one story), meet the 精选 gate that lets a few
-// bundles through, and the ones that pass turn teal and run into a small newspaper: the day's report.
-// Pulses carry items along the lines; most stop at the gate, and each that reaches the paper calls
-// onArrive (the page brings up the next latest 精选). The four stages line up with the columns under
-// the canvas, and `focus` lights one of them. On first sight the river flows in from the left once.
-// Theme-aware, paused off screen; reduced motion draws it still. The canvas only illustrates: what it
-// says is also written in the page.
+// Static source-to-report diagram; pointer and keyboard focus only change emphasis.
 import { useEffect, useRef, type ReactNode } from "react";
 import { withSubject } from "@aihot/site";
 import { EDITION } from "../report/format";
 import { watchAppearance } from "../../lib/local-state";
-import { reducedMotion } from "../../lib/motion";
 
 export interface RiverSource {
   name: string;
@@ -23,10 +15,6 @@ export const STAGES = [0, 0.25, 0.5, 0.75, 1] as const;
 
 const STEP = 3;
 const KIND: Record<string, string> = { x_search: "X 账号", rss: "RSS", web_list: "网页", mp_account: "公众号", json_list: "接口" };
-const FLASH_MS = 900;
-const INTRO_MS = 1800;
-/** Slow in, slow out: the river starts gently, crosses, and settles. */
-const easeInOut = (u: number) => (1 - Math.cos(Math.PI * Math.min(1, Math.max(0, u)))) / 2;
 
 type RGB = [number, number, number];
 const rgba = (c: RGB, a: number) => `rgba(${c[0]},${c[1]},${c[2]},${a})`;
@@ -46,8 +34,6 @@ interface Strand {
   ys: Float32Array;
   end: number;
   bundle: number;
-  /** Items on this line can reach the paper (a kept bundle, and a source that is not heat-only). */
-  pass: boolean;
   source: RiverSource | null;
 }
 
@@ -130,7 +116,7 @@ function layout(w: number, h: number, sources: RiverSource[]): Layout {
         else ys[c] = out + off * 0.5;
       }
       const source = sources.length > 0 ? sources[i % sources.length]! : null;
-      strands.push({ ys, end: b.kept ? paper.x : gate + w * 0.045, bundle: j, pass: b.kept && !source?.heatOnly, source });
+      strands.push({ ys, end: b.kept ? paper.x : gate + w * 0.045, bundle: j, source });
     }
   });
   return { w, h, strands, bundles, x1, x2, gate, xo, out, paper };
@@ -273,22 +259,14 @@ function paintPaper(ctx: CanvasRenderingContext2D, L: Layout, col: Colors, glow:
   }
 }
 
-interface Pulse {
-  s: number;
-  x: number;
-  v: number;
-}
-
 export function SignalRiver({
   sources,
   focus,
-  onArrive,
   className = "",
   children,
 }: {
   sources: RiverSource[];
   focus: number | null;
-  onArrive?: () => void;
   className?: string;
   children?: ReactNode;
 }) {
@@ -296,9 +274,7 @@ export function SignalRiver({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const labelRef = useRef<HTMLDivElement>(null);
   const focusRef = useRef(focus);
-  const arriveRef = useRef(onArrive);
   const redrawRef = useRef<() => void>(() => {});
-  arriveRef.current = onArrive;
 
   useEffect(() => {
     focusRef.current = focus;
@@ -314,24 +290,11 @@ export function SignalRiver({
     const probe = document.createElement("canvas").getContext("2d", { willReadFrequently: true })!;
     const layer = document.createElement("canvas");
     const lctx = layer.getContext("2d")!;
-    const still = reducedMotion();
 
     let L: Layout | null = null;
     let col = readColors(probe);
     let dpr = 1;
-    let pulses: Pulse[] = [];
-    let passing: number[] = [];
-    let spawnDebt = 0;
-    let flashAt = -Infinity;
     let hover: { s: number | null; bundle: number | null; paper: boolean } | null = null;
-    let frame = 0;
-    let last = 0;
-    // The intro starts the first time the river is seen.
-    let introAt = still ? -Infinity : 0;
-    // On screen now (the observer keeps it current after), so the intro plays where it is seen.
-    const box = wrap.getBoundingClientRect();
-    let visible = box.bottom > 0 && box.top < window.innerHeight;
-    let disposed = false;
 
     const build = () => {
       const w = wrap.clientWidth;
@@ -343,34 +306,14 @@ export function SignalRiver({
         c.height = Math.round(h * dpr);
       }
       L = layout(w, h, sources);
-      passing = L.strands.flatMap((s, i) => (s.pass ? [i] : []));
-      pulses = [];
       lctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       paintStatic(lctx, L, col);
     };
 
-    const draw = (now: number) => {
+    const draw = () => {
       if (!L) return;
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      const reveal = introAt === 0 ? 0 : easeInOut((now - introAt) / INTRO_MS);
-      if (reveal < 1) {
-        // The river flows in: the drawing is uncovered left to right behind a soft edge.
-        const edge = (L.w + 80) * reveal;
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(0, 0, Math.max(0, edge) * dpr, canvas.height);
-        ctx.clip();
-        ctx.drawImage(layer, 0, 0);
-        ctx.restore();
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        const soft = ctx.createLinearGradient(edge - 80, 0, edge, 0);
-        soft.addColorStop(0, rgba(col.bg, 0));
-        soft.addColorStop(1, rgba(col.bg, 1));
-        ctx.fillStyle = soft;
-        ctx.fillRect(edge - 80, 0, 80, L.h);
-        return;
-      }
       ctx.drawImage(layer, 0, 0);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.lineJoin = "round";
@@ -390,33 +333,6 @@ export function SignalRiver({
         }
       }
 
-      const trail = Math.max(24, Math.min(56, L.w * 0.04));
-      ctx.lineWidth = 1.8;
-      for (const p of pulses) {
-        const s = L.strands[p.s]!;
-        const head = Math.min(p.x, s.end);
-        if (head <= 0) continue;
-        const tail = Math.max(0, head - trail);
-        let c = col.ink;
-        let a = col.dark ? 0.85 : 0.7;
-        if (head >= L.gate) {
-          if (s.pass) {
-            c = col.accent;
-            a = 1;
-          } else a *= Math.max(0, 1 - (head - L.gate) / (s.end - L.gate));
-        }
-        if (a <= 0.01) continue;
-        const g = ctx.createLinearGradient(tail, 0, head, 0);
-        g.addColorStop(0, rgba(c, 0));
-        g.addColorStop(1, rgba(c, a));
-        trace(ctx, s, tail, head);
-        ctx.strokeStyle = g;
-        ctx.stroke();
-      }
-
-      const f = (now - flashAt) / FLASH_MS;
-      if (f >= 0 && f < 1) paintPaper(ctx, L, col, 1 - f);
-
       const fx = focusRef.current;
       if (fx !== null && fx !== undefined) {
         ctx.fillStyle = rgba(col.bg, 0.62);
@@ -424,44 +340,7 @@ export function SignalRiver({
       }
     };
 
-    const tick = (now: number) => {
-      frame = 0;
-      if (disposed || !L) return;
-      const dt = Math.min(0.05, last ? (now - last) / 1000 : 0);
-      last = now;
-      if (!introAt) introAt = now;
-      if (now - introAt < INTRO_MS * 0.8) {
-        draw(now);
-        schedule();
-        return;
-      }
-      spawnDebt += dt * (L.w >= 900 ? 7 : 4.5);
-      while (spawnDebt >= 1 && pulses.length < 80) {
-        spawnDebt -= 1;
-        const s = passing.length > 0 && Math.random() < 0.11 ? passing[Math.floor(Math.random() * passing.length)]! : Math.floor(Math.random() * L.strands.length);
-        pulses.push({ s, x: -Math.random() * 30, v: L.w * (0.12 + Math.random() * 0.06) });
-      }
-      const kept: Pulse[] = [];
-      for (const p of pulses) {
-        p.x += p.v * dt;
-        const s = L.strands[p.s]!;
-        if (p.x < s.end) kept.push(p);
-        else if (s.pass) {
-          flashAt = now;
-          arriveRef.current?.();
-        }
-      }
-      pulses = kept;
-      draw(now);
-      schedule();
-    };
-
-    const schedule = () => {
-      if (!frame && !still && visible && !document.hidden && !disposed) frame = requestAnimationFrame(tick);
-    };
-    const redraw = () => {
-      if (still || !frame) draw(performance.now());
-    };
+    const redraw = () => draw();
     redrawRef.current = redraw;
 
     const place = (x: number, y: number, title: string, note: string) => {
@@ -532,33 +411,16 @@ export function SignalRiver({
       if (L) paintStatic(lctx, L, col);
       redraw();
     };
-    const seen = new IntersectionObserver(([entry]) => {
-      visible = !!entry?.isIntersecting;
-      last = 0;
-      schedule();
-    });
-    const onVisibility = () => {
-      last = 0;
-      schedule();
-    };
-
     build();
-    draw(performance.now());
-    schedule();
+    draw();
     resize.observe(wrap);
-    seen.observe(wrap);
     const unwatch = watchAppearance((change) => change === "theme" && recolour());
-    document.addEventListener("visibilitychange", onVisibility);
     wrap.addEventListener("pointermove", onMove);
     wrap.addEventListener("pointerleave", onLeave);
     return () => {
-      disposed = true;
-      if (frame) cancelAnimationFrame(frame);
       redrawRef.current = () => {};
       resize.disconnect();
-      seen.disconnect();
       unwatch();
-      document.removeEventListener("visibilitychange", onVisibility);
       wrap.removeEventListener("pointermove", onMove);
       wrap.removeEventListener("pointerleave", onLeave);
     };

@@ -1,6 +1,6 @@
 // Public read layer, item level. Every exit (site API, v1, RSS, MCP, sitemap) reads
 // items through these columns and views; which rows are public is decided by scope.ts.
-import { CATEGORY_KEYS, toPublicApiCategory, type CategoryKey, type ChannelKey, type PublicApiCategoryKey } from "@aihot/contracts/taxonomy";
+import { CATEGORY_KEYS, toPublicApiCategory, type CategoryKey, type ChannelKey, type PlatformKey, type PublicApiCategoryKey } from "@aihot/contracts/taxonomy";
 import type { FeedItemSummary, ItemSummary, MediaView, XPostView } from "@aihot/contracts/site";
 import { POLICY } from "@aihot/site";
 import { sql, type Db } from "../db.ts";
@@ -36,6 +36,7 @@ export interface ItemRow {
   /** Participation mode of the source now (editorial, hot_signal, isolated). */
   source_mode: string;
   x_post: Record<string, any> | null;
+  media: Array<Record<string, any>>;
   /** Current source icon only when that account is this post's author. */
   author_avatar_url?: string | null;
   author: string | null;
@@ -52,7 +53,7 @@ export const ITEM_COLUMNS = sql`
   p.article_id AS id, p.title, p.original_title, p.summary, p.reason, p.category, p.tags, p.score,
   p.selected, p.seat, p.channel, p.url, p.published_at, p.discovered_at, p.timeline_at, p.visibility,
   p.body_mode, p.indexable, p.fact_id, s.name AS source_name, s.participation_mode AS source_mode,
-  a.x_post, a.author, a.language,
+  a.x_post, a.media AS media, a.author, a.language,
   CASE WHEN s.kind = 'x_search' AND ${sourceOwnsPost(sql`s.config`, sql`a.x_post->>'handle'`)} THEN s.icon_url END AS author_avatar_url,
   st.public_id::text AS story_public_id, st.title AS story_title,
   CASE WHEN p.channel = 'x' THEN tr.body_text END AS zh_text, qt.text_zh AS quoted_zh`;
@@ -97,6 +98,15 @@ export function tagCondition(tag: string | null | undefined) {
   return sql`AND p.tags @> ${[tag]}::text[]`;
 }
 
+/**
+ * The report's platform, read from the column publishing decides once (publication/rules.ts platformOf).
+ * A row published before the column existed has none: it stays in 全部 and matches no single platform.
+ */
+export function platformCondition(platform: PlatformKey | null | undefined) {
+  if (!platform || platform === "all") return sql``;
+  return sql`AND p.platform = ${platform}`;
+}
+
 function mediaView(m: Record<string, any>, mode: "card" | "thumb" | "full" = "thumb", responsive = false): MediaView | null {
   const url = proxiedImage(m.url, mode);
   if (!url) return null;
@@ -135,6 +145,9 @@ export function xView(row: Pick<ItemRow, "x_post" | "zh_text"> & Partial<Pick<It
     text: String(x.text ?? ""),
     translation: !isEmptyOrLinkOnly(String(x.text ?? "")) && row.zh_text && row.zh_text.trim() !== String(x.text ?? "").trim() ? row.zh_text : null,
     quoted,
+    repostedBy: x.repostedBy && typeof x.repostedBy === "object"
+      ? { authorName: String(x.repostedBy.authorName ?? ""), handle: String(x.repostedBy.handle ?? ""), url: String(x.repostedBy.url ?? "") }
+      : null,
     // A multi-image list grid is 112 CSS px wide; one image can be 240 px. Keep 3x pixels for both.
     // Detail retains full media for the lightbox; srcSet bounds the displayed image.
     media: media.map(({ raw, view }) => compact && media.length > 1 ? mediaView(raw, "card", responsive)! : view),
@@ -175,10 +188,14 @@ export function toItemSummary(row: ItemRow): ItemSummary {
 export function toFeedItemSummary(row: ItemRow): FeedItemSummary {
   const item = toItemSummary(row);
   const x = showsPost(row) ? xView(row, true) : null;
+  const cover = row.channel === "news"
+    ? (row.media ?? []).map((m) => mediaView(m, "card", true)).find((m): m is MediaView => m !== null) ?? null
+    : null;
   return {
     id: item.id, title: item.title, summary: item.summary ?? (x?.text || null), reason: item.reason,
-    source: item.source, publishedAt: item.publishedAt, timelineAt: item.timelineAt,
+    source: item.source, links: item.links, publishedAt: item.publishedAt, timelineAt: item.timelineAt,
     category: item.category, tags: item.tags, score: item.score, selected: item.selected, channel: item.channel,
+    cover,
     x: x ? {
       authorName: x.authorName, handle: x.handle, avatarUrl: x.avatarUrl,
       ...(x.avatarSrcSet ? { avatarSrcSet: x.avatarSrcSet } : {}), media: x.media,

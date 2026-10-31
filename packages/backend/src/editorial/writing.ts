@@ -3,6 +3,7 @@ import { describePublicationTime } from "../sources/dates.ts";
 // title/summary prompts for everything else, the output parsing and the deterministic guards. The
 // wording lives in the industry pack (industry/prompts/); a failed guard falls back without a repair call.
 import { IDENTITY_CONTEXT_ALIASES, IDENTITY_LEXICON, PUBLISHER_DOMAINS } from "@aihot/industry/taxonomy";
+import { TRACK_TAG_PREFIX } from "@aihot/industry/selection";
 import { stripTagMarkup, isChineseText as looksZh } from "../lib/text.ts";
 export { isChineseText as looksZh } from "../lib/text.ts";
 import { onlyXArticleLink } from "../sources/x.ts";
@@ -81,7 +82,9 @@ function materialQuality(a: AnalyzeInputArticle): string {
 export function renderContext(a: AnalyzeInputArticle, opts: { annotateQuoted?: boolean } = {}): string {
   const lines: string[] = [];
   lines.push(`【来源】${a.source.name}（${a.source.kind}，tier=${a.source.tier || "未分级"}）`);
-  if (a.source.tags?.length) lines.push(`【来源标签】${a.source.tags.join(", ")}`);
+  // `track:` 只决定这套资料走哪条精选轨道，是内部路由标记，喂给模型只会污染判定。
+  const tags = a.source.tags?.filter((tag) => !tag.startsWith(TRACK_TAG_PREFIX)) ?? [];
+  if (tags.length) lines.push(`【来源标签】${tags.join(", ")}`);
   const name = a.xPost?.authorName || a.author;
   const handle = a.xPost?.handle;
   if (name || handle) lines.push(`【作者】${[name, handle ? `@${handle}` : null].filter(Boolean).join(" · ")}`);

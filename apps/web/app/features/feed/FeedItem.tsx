@@ -70,14 +70,29 @@ export const FeedItem = memo(function FeedItem({ item, group, filters, read = fa
           </IntentLink>
         </p> : <IntentLink viewTransition to={`/items/${item.id}`} onClick={open} aria-label={`查看 ${item.x!.authorName} 的帖子`} className="absolute inset-0" />
       ) : (
-        <>
-          <h3 className={`mt-1.5 line-clamp-2 text-[17px] font-[650] leading-[1.5] lg:mt-2 lg:line-clamp-none lg:leading-[1.55] ${readTone(read, "text-ink")}`}>
-            <IntentLink viewTransition to={`/items/${item.id}`} onClick={open} className="after:absolute after:inset-0 after:content-['']">
-              {item.title}
-            </IntentLink>
-          </h3>
-          {item.summary && <p className="mt-1 line-clamp-2 text-[14.5px] leading-[1.7] text-ink-3 lg:mt-2 lg:line-clamp-3 lg:text-[15px] lg:leading-[1.75]">{item.summary}</p>}
-        </>
+        <div className="mt-1.5 flex items-start gap-3 lg:mt-2 lg:gap-5">
+          <div className="min-w-0 flex-1">
+            <h3 className={`line-clamp-2 text-[17px] font-[650] leading-[1.5] lg:line-clamp-none lg:leading-[1.55] ${readTone(read, "text-ink")}`}>
+              <IntentLink viewTransition to={`/items/${item.id}`} onClick={open} className="after:absolute after:inset-0 after:content-['']">
+                {item.title}
+              </IntentLink>
+            </h3>
+            {item.summary && <p className="mt-1 line-clamp-2 text-[14.5px] leading-[1.7] text-ink-3 lg:mt-2 lg:line-clamp-3 lg:text-[15px] lg:leading-[1.75]">{item.summary}</p>}
+          </div>
+          {item.cover && (
+            <img
+              src={item.cover.poster ?? item.cover.url}
+              srcSet={item.cover.srcSet}
+              sizes="(min-width: 961px) 168px, 104px"
+              width={item.cover.width ?? undefined}
+              height={item.cover.height ?? undefined}
+              alt={item.cover.alt ?? ""}
+              loading="lazy"
+              decoding="async"
+              className="aspect-[16/10] w-[104px] shrink-0 rounded-control border border-line-soft bg-bg-sunk object-cover sm:w-[136px] lg:w-[168px]"
+            />
+          )}
+        </div>
       )}
 
       {isX && item.x!.media.length > 0 && <MediaThumbs media={item.x!.media} className="mt-2.5" />}

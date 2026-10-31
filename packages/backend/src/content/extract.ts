@@ -7,12 +7,13 @@ import { guardedFetch, languageHeaders } from "../lib/http-fetch.ts";
 import { assertPageContent, contentDocument, UnavailablePageError } from "../lib/page-content.ts";
 import { stripTags } from "../lib/text.ts";
 import { isVideoPageUrl } from "../lib/video-url.ts";
+import { fetchFxStatus } from "../providers/fxtwitter.ts";
 import { jinaRead } from "../providers/jina.ts";
 import { BudgetExceededError } from "../providers/receipts.ts";
-import { getArticle } from "../providers/socialdata.ts";
+import { getArticle, type SdArticle } from "../providers/socialdata.ts";
 import { articleUtcOffset, readPublicationDate, type PublicationDate } from "../sources/dates.ts";
 import type { SourceRow } from "../sources/types.ts";
-import { onlyXArticleLink, xArticleText } from "../sources/x.ts";
+import { fxArticle, onlyXArticleLink, xArticleText } from "../sources/x.ts";
 import { sanitizeBody, trimTrailingChrome } from "./sanitize.ts";
 import { contentHash, fillPublicationTime, reviseMaterial, updatePresentation, type MediaItem } from "./materials.ts";
 import { markdownBody } from "./markdown.ts";
@@ -500,14 +501,25 @@ async function markUnconfirmed(articleId: string, revision: number): Promise<"un
 }
 
 /**
- * The X Article a post published (SocialData, paid, by the post's own id). The article joins the
- * post's body as a new revision; a post that is only the article's link takes the article's title.
- * No article (the link points at someone else's, or X has none) leaves the post "unconfirmed", and
- * the judging steps are told the article was not fetched.
+ * The X Article a post published. FxTwitter first (free, the post payload carries the article's
+ * blocks); SocialData only when that returns none (paid, by the post's own id). The article joins
+ * the post's body as a new revision; a post that is only the article's link takes the article's
+ * title. No article (the link points at someone else's, or X has none) leaves the post
+ * "unconfirmed", and the judging steps are told the article was not fetched.
  */
 async function extractXArticle(articleId: string, tweetId: string, revision: number): Promise<"ok" | "unconfirmed" | "skipped"> {
-  const found = await getArticle(tweetId, { purpose: "x_article", subject: `article:${articleId}` });
-  const got = found ? xArticleText(found) : null;
+  let found: SdArticle | null = null;
+  try {
+    found = fxArticle(await fetchFxStatus(tweetId));
+  } catch {
+    // Unreachable or gone: the paid lookup below is the last resort.
+  }
+  let got = found ? xArticleText(found) : null;
+  if (!got) {
+    // No article in the free answer, or only blocks it cannot render (e.g. media-only).
+    found = await getArticle(tweetId, { purpose: "x_article", subject: `article:${articleId}` });
+    got = found ? xArticleText(found) : null;
+  }
   if (!got) {
     return markUnconfirmed(articleId, revision);
   }

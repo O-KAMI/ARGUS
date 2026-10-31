@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="ARGUS">
+  <rect width="64" height="64" rx="14" fill="#F5F2EB"/>
+  <defs><clipPath id="eye"><circle cx="32" cy="33" r="23"/></clipPath><radialGradient id="pupil" cx="35%" cy="28%" r="72%"><stop stop-color="#777972"/><stop offset=".3" stop-color="#242521"/><stop offset="1" stop-color="#080908"/></radialGradient></defs>
+  <g clip-path="url(#eye)"><path d="M5 43 17 34 25 40 34 29 44 40 59 34V60H5Z" fill="#555750" opacity=".35"/><path d="M4 52 18 43 28 49 39 39 50 49 60 44V64H4Z" fill="#242521" opacity=".8"/></g>
+  <path d="M54 19C48 7 31 3 18 10 5 17 3 34 10 46c7 13 24 16 36 8 5-3 8-7 10-12" fill="none" stroke="#242521" stroke-width="5.5" stroke-linecap="round"/>
+  <circle cx="34" cy="21" r="9" fill="url(#pupil)"/><circle cx="31" cy="17.5" r="2.7" fill="#fff"/><circle cx="54" cy="23" r="2.2" fill="#242521"/>
+</svg>

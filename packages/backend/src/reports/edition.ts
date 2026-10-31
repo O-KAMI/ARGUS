@@ -7,6 +7,7 @@
 // independent participants, first-hand), and the first one leads. Sections are the industry pack's
 // (industry/taxonomy.ts CATEGORIES).
 import { addDays } from "@aihot/contracts/time";
+import { FIELD_FILTERS } from "@aihot/contracts/taxonomy";
 import { CATEGORIES } from "@aihot/industry/taxonomy";
 import { sql } from "../db.ts";
 import { currentSignals } from "../events/hot.ts";
@@ -20,6 +21,26 @@ export const SECTION_ORDER: readonly string[] = [...new Set(CATEGORIES.map((c) =
 /** An item without a category goes into the section of the industry category, else into the last one. */
 const DEFAULT_SECTION = SECTION_OF.industry ?? SECTION_ORDER.at(-1)!;
 export const sectionOf = (category: string | null) => SECTION_OF[category ?? ""] ?? DEFAULT_SECTION;
+
+/**
+ * A daily carries technical directions only. The judge is "carries at least one technical-direction tag",
+ * read from the feed's own FIELD_FILTERS vocabulary, so the rule follows the vocabulary when it grows
+ * instead of needing another hand-picked list. A hand-picked exclusion list would contradict the curation:
+ * 精选 counts LLM/Agent internals and AI video, whose field tags are 推理, 数据/训练, 视频, 多模态, 图像生成.
+ * What this excludes is an item with no technical direction at all: funding, governance, regulation,
+ * pure industry-structure debate. Those still appear in 全部动态 and 重要公告.
+ */
+export const FIELD_TAGS: readonly string[] = FIELD_FILTERS.map((f) => f.tag);
+
+/** How many selected items the technical-direction rule kept out of a period: reported, never silently dropped. */
+export async function countNonTechnicalCandidates(start: Date, end: Date): Promise<number> {
+  const [row] = await sql<{ n: number }[]>`
+    SELECT count(*)::int AS n FROM publications p
+    WHERE p.visibility = 'public' AND p.selected AND NOT p.backfill AND NOT (p.tags && ${FIELD_TAGS}::text[])
+      AND ((p.visible_after <= p.timeline_at AND p.timeline_at >= ${start} AND p.timeline_at < ${end})
+        OR (p.visible_after > p.timeline_at AND p.visible_after >= ${start} AND p.visible_after < ${end}))`;
+  return row?.n ?? 0;
+}
 
 /** A daily's size: the entries readers get in full, and the one-line flashes after them. */
 export const MAIN_ENTRIES = 12;
@@ -112,6 +133,7 @@ export async function periodReports(start: Date, end: Date): Promise<ReportRow[]
       LEFT JOIN stories st ON st.id = f.story_id
       -- Attribute each item by the later of arrival and release; either range can use its index.
       WHERE p.visibility = 'public' AND p.selected AND NOT p.backfill
+        AND p.tags && ${FIELD_TAGS}::text[]
         AND (
           (p.visible_after <= p.timeline_at AND p.timeline_at >= ${start} AND p.timeline_at < ${end})
           OR (p.visible_after > p.timeline_at AND p.visible_after >= ${start} AND p.visible_after < ${end})

@@ -39,6 +39,9 @@ const socialdata = await stub(async () => {
 process.env.SOCIALDATA_API_KEY = "test-key";
 process.env.SOCIALDATA_BASE_URL = socialdata.url;
 process.env.JINA_API_KEY = "test-key";
+// The free X lookup has no article for these fixtures: every case exercises the paid fallback.
+const fxtwitter = await stub(() => new Reply(404, { code: 404 }));
+config.fxTwitterBaseUrl = fxtwitter.url;
 config.allowPrivateNetworkFetch = true;
 before(async () => {
   await sql`INSERT INTO sources(id,name,kind) VALUES (${sourceId},'Extraction consistency','rss')`;
@@ -46,7 +49,7 @@ before(async () => {
   // Jina stopped: a page without a readable body stays without one.
   await sql`UPDATE budgets SET per_minute=0,per_hour=0,per_day=0 WHERE service='jina'`;
 });
-after(async () => { page.close(); await socialdata.close(); await stopBoss(); await closeDb(); });
+after(async () => { page.close(); await fxtwitter.close(); await socialdata.close(); await stopBoss(); await closeDb(); });
 const reset = (count = 1, empty = false) => { presentationHtml = null; hold = { entered: gate(), release: gate(), count, empty }; };
 const state = async (id: string) => ({ ...(await sql`SELECT title,body_text,body_status,revision,content_hash FROM articles WHERE id=${id}`)[0] });
 

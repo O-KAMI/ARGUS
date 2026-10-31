@@ -2,7 +2,9 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { CATEGORY_KEYS } from "@aihot/contracts/taxonomy";
+import { beijingDate } from "@aihot/contracts/time";
 import { UNSAFE_decodeViaTurboStream } from "react-router";
+import { dailyQuote } from "../app/features/home/daily-quote.ts";
 import { fakeApi, startWebServer, type WebServer } from "./web-server.ts";
 
 let web: WebServer;
@@ -25,7 +27,11 @@ const api = fakeApi(async (url, res, req) => {
     res.setHeader("Cache-Control", "public, max-age=30, s-maxage=30");
     return { filters, cards: [], nextCursor: null, dayCounts: [], hot: null };
   }
-  if (url.pathname === "/api/site/hot") return { entries: [] };
+  if (url.pathname === "/api/site/hot") return {
+    computedAt: "2026-10-04T08:00:00.000Z", windowHours: 48, entries: [],
+    announcements: [{ id: "official-announcement", title: "官方重要公告", summary: "一手官方发布摘要", source: { name: "Fixture Official" }, links: { original: "https://example.org/official" }, publishedAt: "2026-10-04T08:00:00.000Z", timelineAt: "2026-10-04T08:00:00.000Z" }],
+  };
+  if (url.pathname === "/api/site/topics") return { groups: [], topics: [] };
   if (url.pathname === "/api/site/echo-client") return { forwarded: req.headers["x-forwarded-for"], real: req.headers["x-real-ip"] };
   if (url.pathname === "/api/site/download") {
     res.setHeader("Content-Type", "text/markdown; charset=utf-8");
@@ -88,7 +94,10 @@ test("HTML and navigation share freshness; cookies do not personalize public res
   const html = await fetch(`${origin}/`);
   assert.equal(html.status, 200);
   assert.equal(html.headers.get("X-Accel-Expires"), `@${deadline}`);
-  assert.match(await html.text(), /精选/);
+  const home = await html.text();
+  assert.match(home, /精选/);
+  const quote = dailyQuote(beijingDate(Date.now()));
+  assert.ok(home.includes(quote.text) && home.includes(quote.source), "the date card carries the day's quotation and its work");
   // The api's deadline also fixes the result's own expiry, so reads seconds apart compare byte for byte.
   const plain = await fetch(`${origin}/_.data`);
   const signedIn = await fetch(`${origin}/_.data?_routes=root`, { headers: { cookie: "admin_session=private; reader=returning" } });
@@ -97,6 +106,16 @@ test("HTML and navigation share freshness; cookies do not personalize public res
   assert.equal(signedIn.headers.get("Set-Cookie"), null);
   assert.equal(await signedIn.text(), await plain.text());
   assert.ok(apiCookies.every((cookie) => !cookie));
+});
+
+test("the hot page renders announcements separately from cross-source heat", async () => {
+  const res = await fetch(`${origin}/hot`);
+  assert.equal(res.status, 200);
+  const html = await res.text();
+  assert.match(html, /跨源讨论热度/);
+  assert.match(html, /重要公告/);
+  assert.match(html, /官方重要公告/);
+  assert.match(html, /不参与跨源讨论热度排名/);
 });
 
 test("missing routes cannot be hidden by a root-only request; errors and redirects stay uncached", async () => {

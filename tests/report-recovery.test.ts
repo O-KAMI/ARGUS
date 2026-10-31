@@ -4,12 +4,14 @@ import { editionAt, stub, tag } from "./setup.ts";
 import assert from "node:assert/strict";
 import { after, before, beforeEach, test } from "node:test";
 import { closeDb, sql } from "@aihot/backend/db";
-import { addDays } from "@aihot/contracts/time";
+import { addDays, beijingAt } from "@aihot/contracts/time";
 import { stopBoss } from "@aihot/backend/jobs/queue";
 import { composeDaily, composeDueReports, composeWeekly, composeMonthly } from "@aihot/backend/reports/compose";
 
 const T = tag();
 const SOURCE = `report-recovery-${T}`;
+/** A daily carries technical directions only, so a fixture report needs one of the pack's field tags. */
+const FIELD_TAG = "Agent";
 const answer = async (user: string) => ({ title: user.slice(0, 100), leadParagraph: "导语", highlights: [1], headline: "本期进展", overview: "总述", themes: [{ heading: "主题", summary: "摘要", refs: [1] }] });
 const provider = await stub(async (_hit, request) => ({
   choices: [{ message: { content: JSON.stringify(await answer(JSON.parse(request.body).messages.at(-1).content)) } }],
@@ -25,17 +27,17 @@ beforeEach(async () => {
 });
 after(async () => { await provider.close(); await stopBoss(); await closeDb(); });
 
-/** A selected item in the window of the daily issue dated `date`, half a day before its edition time. */
+/** A selected item at noon in the previous-natural-day window of the daily issue dated `date`. */
 async function item(date: string) {
   const id = `recovery-${tag()}`;
-  const at = editionAt("daily", date, -12 * 3600);
+  const at = beijingAt(addDays(date, -1), "12:00");
   await sql`INSERT INTO articles (id, source_id, identity_key, url, title, discovered_at, timeline_at)
     VALUES (${id}, ${SOURCE}, ${id}, 'https://example.com/report', ${id}, ${at}, ${at})`;
-  await sql`INSERT INTO publications (article_id, title, source_id, channel, url, discovered_at, timeline_at, sort_at, eligible, selected, visible_after, visibility, score)
-    VALUES (${id}, ${id}, ${SOURCE}, 'news', 'https://example.com/report', ${at}, ${at}, ${at}, true, true, ${at}, 'public', 90)`;
+  await sql`INSERT INTO publications (article_id, title, source_id, channel, url, discovered_at, timeline_at, sort_at, eligible, selected, visible_after, visibility, score, tags)
+    VALUES (${id}, ${id}, ${SOURCE}, 'news', 'https://example.com/report', ${at}, ${at}, ${at}, true, true, ${at}, 'public', 90, ${[FIELD_TAG]})`;
   return id;
 }
-const report = async (kind: string, key: string) => (await sql`SELECT content, revision, generated_at FROM reports WHERE kind = ${kind} AND key = ${key}`)[0];
+const report = async (kind: string, key: string) => (await sql`SELECT content, revision, generated_at, window_start, window_end FROM reports WHERE kind = ${kind} AND key = ${key}`)[0];
 
 async function daily(date: string, id?: string) {
   const sections = id ? [{ label: "行业动态", items: [{ itemId: id, title: id }] }] : [];
@@ -52,11 +54,15 @@ async function dailies(start: string, end: string, withItems: string[] = []) {
 
 test("automatic retries preserve all three published issue kinds; explicit corrections keep a revision", async () => {
   const id = await item("2024-02-02");
-  for (const [kind, key, compose] of [
-    ["daily", "2024-02-02", composeDaily], ["weekly", "2024-W05", composeWeekly], ["monthly", "2024-02", composeMonthly],
+  for (const [kind, key, compose, start, end] of [
+    ["daily", "2024-02-02", composeDaily, "2024-02-01", "2024-02-02"],
+    ["weekly", "2024-W05", composeWeekly, "2024-01-28", "2024-02-05"],
+    ["monthly", "2024-02", composeMonthly, "2024-01-31", "2024-03-01"],
   ] as const) {
     await compose(key);
     const saved = await report(kind, key);
+    assert.equal(saved.window_start.toISOString(), beijingAt(start, "00:00").toISOString());
+    assert.equal(saved.window_end.toISOString(), beijingAt(end, "00:00").toISOString());
     const calls = provider.hits();
     await sql`UPDATE publications SET title = title || ' corrected' WHERE article_id = ${id}`;
     await compose(key);

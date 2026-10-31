@@ -29,6 +29,7 @@ export const IconInfo = (p: P) => (<Svg {...p}><circle cx="12" cy="12" r="8.5" /
 export const IconHistory = (p: P) => (<Svg {...p}><path d="M3.5 12a8.5 8.5 0 102.5-6" /><path d="M3.5 4v4h4" /><path d="M12 8v4l2.5 2" /></Svg>);
 export const IconMessage = (p: P) => (<Svg {...p}><path d="M4 5h16v11H9l-5 4z" /></Svg>);
 export const IconSearch = (p: P) => (<Svg {...p}><circle cx="11" cy="11" r="6.5" /><path d="M20 20l-4.2-4.2" /></Svg>);
+export const IconBell = (p: P) => (<Svg {...p}><path d="M6 16.5h12l-1.5-2.5V10a4.5 4.5 0 00-9 0v4zM10 19a2.2 2.2 0 004 0" /></Svg>);
 /** The GitHub mark (filled, not stroked). */
 export const IconGithub = ({ size = 18, ...rest }: P) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" {...rest}>

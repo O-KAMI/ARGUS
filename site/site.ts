@@ -20,16 +20,16 @@ export const EDITION_WHEN = {
 
 export const SITE = {
   /** 站名：导航、页面标题、分享图、RSS、MCP、后台都用它。 */
-  name: "MyHOT",
+  name: "ARGUS",
   /**
    * 行业词：拼进默认说法里，比如“AI 日报”“AI 动态”。
    * 改成“法律”“HR”“黄金”之类，页面上就会变成“法律日报”“法律动态”。
    */
   subject: "AI",
   /** 首页的完整标题（浏览器标签、搜索结果）。 */
-  homeTitle: "MyHOT — AI 行业动态 · 每日精选与日报",
+  homeTitle: "ARGUS — AI 情报与知识中枢 · 观世界 · 见未来",
   /** 主题目录页（/topics）的标题。 */
-  topicsTitle: "AI 主题：公司与模型、技术方向、内容形态的最新动态",
+  topicsTitle: "AI 主题知识库：模型、Agent、编码、开源与行业趋势",
   /** 反馈表单输入框里的示例。 */
   feedbackExample: "例如：我在搜索某个关键词时遇到……我原本想……",
   /** 反馈页标题下面的一句话。 */
@@ -37,13 +37,13 @@ export const SITE = {
   /** 反馈表单邮箱框里的提示。 */
   feedbackEmailHint: "留下邮箱，我们可以回信联系你",
   /** 一句话介绍：搜索引擎、分享卡片、RSS、llms.txt 会用。 */
-  description: `从一批 AI 信源里挑出值得看的动态，把同一件事的多篇报道归到一起，${EDITION_WHEN.daily} 出一份日报。`,
+  description: `持续追踪 AI 信源：采集、去重、评分、聚类与精选，${EDITION_WHEN.daily} 出一份中文日报。每条内容都可追溯到原始来源。`,
   /** llms.txt 里一句话介绍下面的一段详细介绍（选填）。 */
   llmsIntro: null as string | null,
   /** 一行小字：分享图、海报下方。 */
-  tagline: "值得关注的 AI 动态",
+  tagline: "观世界 · 见未来",
   /** 搜索引擎读到的关键词（首页结构化数据）。 */
-  keywords: ["AI 资讯", "AI 新闻", "AI 日报", "AI 行业动态"] as string[],
+  keywords: ["AI 情报", "AI 日报", "AI 知识中枢", "ARGUS"] as string[],
   /** 网站开始收录的年份（结构化数据的时间范围，选填）。 */
   since: null as string | null,
   /** 界面语言（HTML lang、og:locale）。 */
@@ -53,10 +53,10 @@ export const SITE = {
   /** 标准图标（favicon.ico、icon.png、icon-192.png、apple-icon.png、logo.svg）以外也放在网站根目录的图标，site/brand/ 里的文件名（选填）；manifest.webmanifest 或外站引用了它们时用。 */
   rootIcons: [] as string[],
   /**
-   * MCP 工具名的前缀（小写字母、数字、下划线），工具会叫 myhot_get_latest、myhot_search……
+   * MCP 工具名的前缀（小写字母、数字、下划线），工具会叫 argus_get_latest、argus_search……
    * 已经有人接入后就不要再改。
    */
-  mcpPrefix: "myhot",
+  mcpPrefix: "argus",
   /**
    * 公开接口（MCP、OpenAPI、llms.txt）的版本号，只升不降。
    * 改了接口里已有的字段或含义时升主版本，并在部署说明里写清。
@@ -65,7 +65,7 @@ export const SITE = {
   /** 对外联系邮箱（选填）：llms.txt 和给 Agent 的使用说明里会写。 */
   contactEmail: null as string | null,
   /** 关于页底部的一行小字（选填）。 */
-  footerNote: "由 AIHOT 开源框架驱动",
+  footerNote: null,
   /** 中国大陆网站的 ICP 备案号（选填），填了就显示在侧栏底部和“我的”页底部，并链接到工信部备案系统。 */
   icp: null as string | null,
   /** 中国大陆网站的公安备案信息（选填），填了显示在侧栏底部和“我的”页底部。 */
@@ -74,12 +74,12 @@ export const SITE = {
   github: null as string | null,
   /** 结构化数据里的网站运营者（搜索引擎用）。 */
   organization: {
-    name: "MyHOT",
+    name: "ARGUS",
     /** 创始人（选填）。 */
     founder: null as Founder | null,
   },
   /** 抓取信源时报上的名字和版本（User-Agent 里用），不要冒用别的站。 */
-  crawlerName: "MyHOTBot/1.0",
+  crawlerName: "ARGUSBot/1.0",
 } as const;
 
 /** 使用规则和隐私说明两页（正文在 pages/ 里）。 */
@@ -87,7 +87,7 @@ export const POLICY = {
   terms: {
     /** 页面名：导航、页脚、页面标题都用它。 */
     name: "使用规则",
-    description: "本站网页、RSS、公开 API 与 MCP 的使用规则。",
+    description: "ARGUS 网页、RSS、公开 API 与 MCP 的使用规则。",
     /** llms.txt 里对这一页的一句说明（选填）。 */
     covers: null as string | null,
     /** Agent 接入页的 RSS、API 两栏各自提醒的使用规则（选填）。 */
@@ -104,7 +104,7 @@ export const POLICY = {
     headers: null as null | Record<string, string>,
   },
   privacy: {
-    description: "本站如何处理浏览器本地数据、反馈资料与访问日志。",
+    description: "ARGUS 如何处理登录会话、浏览器本地数据、反馈资料与访问日志。",
     /** llms.txt 里对这一页的一句说明（选填）。 */
     covers: null as string | null,
   },
@@ -147,16 +147,16 @@ export const ABOUT = {
   /** 页面描述（搜索结果、分享卡片）。 */
   description: `关于 ${SITE.name}：${SITE.description}`,
   /** 大标题：第一行正常颜色，第二行强调色。 */
-  headline: ["AI 圈每天都有新动静，", "值得看的，只有几条。"] as [string, string],
+  headline: ["观世界，", "见未来。"] as [string, string],
   /** 标题下面的一段话。{sources} 会换成实时的信源数（两边自动加空格，所以 {sources} 两边不写空格）；统计没取到时换成 sourcesFallback。 */
-  lead: `${SITE.name} 替你盯着{sources}个信源：抓取、归并、打分、精选，${EDITION_WHEN.daily} 出一份日报。免费，不用注册。`,
+  lead: `${SITE.name} 替你盯着{sources}个信源：采集、去重、评分、聚类与精选，${EDITION_WHEN.daily} 出一份中文日报。内容默认私有，登录后查看。`,
   sourcesFallback: "十几",
   /** 信源河动画下面的四个环节。 */
   steps: {
-    collect: "官方博客、媒体和个人的订阅源都在看；更新越勤的源看得越勤，最快 15 分钟看一次。",
-    store: "抓到的都存下来，同一件事的报道归到一起，热点榜就是从这里算出来的。",
-    select: `模型先看是不是这个行业的事、有没有实际信息，再写中文标题、摘要和${ITEM_COPY.reasonLabel}；营销稿和重复转发进不来。`,
-    publish: `${EDITION_WHEN.daily} 出日报，${EDITION_WHEN.weekly} 出周报，${EDITION_WHEN.monthly} 出月报。`,
+    collect: "官方博客、技术社区、开源仓库与指定账号都在看；更新越勤的源看得越勤，最快 15 分钟看一次。",
+    store: "抓到的都存下来，精确去重后把同一件事的报道归到一起；每条内容都能追溯到原始来源。",
+    select: `模型先判主题相关性与信息量，再独立评分、写中文标题、摘要和${ITEM_COPY.reasonLabel}；营销稿、标题党和重复转载进不来。`,
+    publish: `${EDITION_WHEN.daily} 出日报，${EDITION_WHEN.weekly} 出周报，${EDITION_WHEN.monthly} 出月报；历史内容按主题与时间归档。`,
   },
   /**
    * 作者块（选填），null 就不显示。
@@ -171,7 +171,7 @@ export const ABOUT = {
     feishu?: ContactCard;
   },
   /** 页面底部的版权与下架说明，中间接“反馈页”的链接。 */
-  copyright: [`${SITE.name} 是聚合摘要和阅读索引，原文版权归各来源所有。如果你是来源方，希望更正、下架或调整展示方式，可以通过`, "联系我们。"] as [string, string],
+  copyright: [`${SITE.name} 是个人使用的聚合摘要与阅读索引，原文版权归各来源所有。如果你是来源方，希望更正、下架或调整展示方式，可以通过`, "联系我们。"] as [string, string],
   /** 页面底部“使用规则”链接的锚点 id（选填）：外部文档写死过这个锚点就填上，以后不要改。 */
   termsAnchor: null as string | null,
 } as const;
@@ -189,7 +189,7 @@ export const ADMIN = {
 /** Agent 接入页的示例。 */
 export const AGENT = {
   /** MCP 工具表里“搜索”一行：能搜什么、可以怎么问。 */
-  search: { scope: "按公司、产品、人物或话题搜最近 7 天", ask: "这家公司最近发了什么？" },
+  search: { scope: "按模型、产品、人物、主题或关键词搜最近 7 天", ask: "最近有什么值得关注的 AI 进展？" },
 };
 
 /** 日报、周报、月报版面上的说法。 */
@@ -205,7 +205,7 @@ export const REPORTS = {
     monthly: subjectAfter("每月", "行业盘点"),
   },
   /**
-   * 一期里的一条怎么称呼（“4 件大事”）：没有头条时的标题（“这一天的 4 件 AI 大事”）、报头和往期目录的条数、
+   * 一期里的一条怎么称呼（“4 件大事”）：没有头条时的标题（“本期的 4 件 AI 大事”）、报头和往期目录的条数、
    * 周报月报没有总述时的那句话，以及订阅说明里的“按栏目分好的大事”都用它。
    */
   entry: { measure: "件", noun: "大事" },
@@ -214,7 +214,7 @@ export const REPORTS = {
   /** 报告分享图上“共几条”的说法。 */
   shareUnit: "件大事",
   /** 日报时段内有资料经过评判、但没有新大事时的标题与导语。 */
-  quiet: { title: "今日安静，无大事发生", paragraph: `${subjectAfter("北京时间 {start} 至 {end}，没有新的", "大事")}。` },
+  quiet: { title: "昨日安静，无大事发生", paragraph: `${subjectAfter("北京时间 {start} 至 {end}，没有新的", "大事")}。` },
 };
 
 /** 运维告警（只发给站长）里随部署而变的几处说法。 */
@@ -246,7 +246,7 @@ export const COMMUNITY_FEEDS: { dev: string[]; hn: string[] } = {
 export const CARDS: Record<string, { kicker: string; title: string; subtitle: string; accent?: "hot" | "amber" }> = {
   site: { kicker: subjectAfter("每日", "精选"), title: SITE.tagline, subtitle: SITE.description },
   all: { kicker: subjectAfter("全部", "动态"), title: "所有信源的最新动态，一站看完", subtitle: "按时间汇总各信源的最新动态，可按类别与标签筛选。" },
-  hot: { kicker: "热点榜", title: "过去 48 小时，大家在讨论什么", subtitle: "热度指数、趋势与组成热度的公开来源。", accent: "hot" },
+  hot: { kicker: "热点", title: "过去 48 小时，真正重要的事", subtitle: "按独立信源与时间衰减计算的事件热度；数据不足时不展示趋势。", accent: "hot" },
   daily: { kicker: withSubject("日报"), title: subjectAfter(`每天 ${spokenTime(EDITION_TIMES.daily)}，一份读得完的`, "日报"), subtitle: `${subjectAfter("前一天值得关注的", "动态")}。` },
   weekly: { kicker: withSubject("周报"), title: `一周${REPORTS.entry.noun}，一次看清`, subtitle: "本周的主线、重要发布与值得回看的讨论。" },
   monthly: { kicker: withSubject("月报"), title: "一个月的变化", subtitle: "月度主线与关键事件回顾。" },
@@ -289,10 +289,13 @@ export const DEPLOYMENT = {
    */
   directFetchHosts: [] as string[],
   /**
-   * 精选评测（scripts/eval-selection.ts）不带参数时用的金标集：文件（相对仓库根目录）、抽样条数、只抽哪一份、门槛扫描范围。
-   * null 就用 .data/gold.jsonl 的全部样本（最多 200 条），在 40–90 之间扫描。
+   * 精选评测（scripts/eval-selection.ts）不带参数时用的金标集，按轨道分别给：键是轨道名
+   * （industry/selection.ts 的 trackOf 给出的 learning / news / inherit），值是文件（相对仓库根目录）、
+   * 抽样条数、只抽哪一份、门槛扫描范围。两条轨道的评分提示词不同，模型回答和门槛也各自独立，
+   * 所以指标与门槛扫描按轨道分开报；没列出的轨道用 .data/gold.jsonl 的全部样本（最多 200 条），
+   * 在 40–90 之间扫描。后台“精选标注”存下的人工判断，用 --export-gold 导成这里的文件。
    */
-  selectionGold: null as null | { file: string; sample: number; split: string; sweep: [number, number] },
+  selectionGold: null as null | Record<string, { file: string; sample: number; split: string; sweep: [number, number] }>,
 };
 
 /** RSS 订阅源的说明里随站点而变的说法。 */

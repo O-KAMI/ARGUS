@@ -43,6 +43,8 @@ export const config = {
   siteUrl: str("SITE_URL", SITE.defaultUrl).replace(/\/+$/, ""),
   egressProxyUrl: env.EGRESS_PROXY_URL || null,
   allowPrivateNetworkFetch: bool("ALLOW_PRIVATE_NETWORK_FETCH", false),
+  /** Free public X timeline API; tests point this at a local stub. */
+  fxTwitterBaseUrl: env.FXTWITTER_BASE_URL || "https://api.fxtwitter.com",
   /** Whole host names of self-hosted feed services on private addresses; only listing fetches use them. */
   privateFeedHosts: (env.PRIVATE_FEED_HOSTS || "").split(",").map((v) => v.trim().toLowerCase()).filter(Boolean),
   feishuContentPushEnabled: bool("FEISHU_CONTENT_PUSH_ENABLED", false),
@@ -60,6 +62,13 @@ export const config = {
   devAdmin: env.DEV_AUTH_ROLE === "admin" ? { displayName: env.DEV_AUTH_DISPLAY_NAME || "Dev Admin" } : null,
   /** The admin password (at least 12 characters). Feishu sign-in below is optional. */
   adminPassword: env.ADMIN_PASSWORD || null,
+  /**
+   * ARGUS is private by default: when on, every reader page and public feed/API/MCP needs the
+   * signed-in session. The web process reaches the api with INTERNAL_TOKEN for server-side rendering.
+   */
+  privateAccess: bool("PRIVATE_ACCESS", true),
+  /** Shared secret between the web and api processes for SSR reads while PRIVATE_ACCESS is on. */
+  internalToken: env.INTERNAL_TOKEN || null,
   adminUnionIds: (env.ADMIN_FEISHU_UNION_IDS || "").split(",").map((v) => v.trim()).filter(Boolean),
   adminEmails: (env.ADMIN_EMAILS || "").split(",").map((v) => v.trim().toLowerCase()).filter(Boolean),
 };

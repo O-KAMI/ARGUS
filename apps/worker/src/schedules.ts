@@ -10,6 +10,7 @@ import { scheduleMpReconcile } from "@aihot/backend/sources/mp";
 import { followXRenames } from "@aihot/backend/sources/x-renames";
 import { dajialaConfigured } from "@aihot/backend/providers/dajiala";
 import { refreshSourceIcons } from "@aihot/backend/sources/icons";
+import { probeRssSources } from "@aihot/backend/sources/rss-health";
 import { computeHotRanking, snapshotHeat } from "@aihot/backend/events/hot";
 import { linkRelatedStories } from "@aihot/backend/events/consolidate";
 import { composeDueReports } from "@aihot/backend/reports/compose";
@@ -52,6 +53,9 @@ const ENGINE_SCHEDULES: Scheduled[] = [
     ? [
         { name: "sources.schedule", cron: "* * * * *", run: () => scheduleDueSources() },
         { name: "sources.adapt-intervals", cron: "20 4 * * *", run: adaptIntervals },
+        // Every RSS feed once a day: a dead address is replaced by the same site's current feed, or reported.
+        // It runs before the daily X rename pass so a fallback is not starved by the hourly SocialData budget.
+        { name: "sources.rss-probe", cron: "30 4 * * *", missed: "once" as const, run: () => probeRssSources() },
         // X accounts quiet for a day: a renamed one is followed to its new handle (SocialData, paid per lookup).
         { name: "sources.x-renames", cron: "50 4 * * *", missed: "once" as const, run: () => followXRenames() },
         // Icons are read from the sources' own sites, so they stop with collection.

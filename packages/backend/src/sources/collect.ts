@@ -14,7 +14,7 @@ import { fetchDetail, fetchWebList, isCallToActionTitle, needsTitle, type Detail
 import { unsupportedConfig } from "./config-keys.ts";
 import { admitListing, filterPublicationWindow } from "./filters.ts";
 import { fetchJsonList } from "./json-list.ts";
-import { fetchXSearch, planXShards, readXSearch, shardHandle, shardQuery, selfThreadHandle, SHARDABLE_SQL, tweetToCandidate, type XBacklog } from "./x.ts";
+import { fetchFxSource, fetchXSearch, planXShards, readXSearch, shardHandle, shardQuery, selfThreadHandle, SHARDABLE_SQL, tweetToCandidate, type XFetch, type XBacklog } from "./x.ts";
 import { FetchError, type Candidate, type SourceRow } from "./types.ts";
 
 export interface CollectResult {
@@ -277,6 +277,24 @@ async function recordFetch(db: Db, sourceId: string, runId: number, run: { found
               error = ${run.error}, detail = nullif(coalesce(detail,'{}'::jsonb) || coalesce(${detail}::jsonb,'{}'::jsonb),'{}'::jsonb) WHERE id = ${runId}`;
 }
 
+interface XReadLayer {
+  x: XFetch;
+  layer: "fxtwitter" | "socialdata";
+  fxError?: string;
+}
+
+/** FxTwitter → SocialData. The paid search is reached only when the free layer fails. */
+async function readX(source: SourceRow, opts: { xSince?: string }): Promise<XReadLayer> {
+  if ((source.config.provider ?? "socialdata") !== "fxtwitter") return { x: await fetchXSearch(source, opts.xSince), layer: "socialdata" };
+  let fxError: string;
+  try {
+    return { x: await fetchFxSource(source), layer: "fxtwitter" };
+  } catch (error) {
+    fxError = String(error instanceof Error ? error.message : error).slice(0, 300);
+  }
+  return { x: await fetchXSearch(source, opts.xSince), layer: "socialdata", fxError };
+}
+
 /** `xSince` reads an X account again from that post, without moving its watermark back. */
 export async function collectSource(sourceId: string, opts: { force?: boolean; xSince?: string } = {}): Promise<CollectResult> {
   const source = await loadSource(sourceId);
@@ -315,14 +333,21 @@ export async function collectSource(sourceId: string, opts: { force?: boolean; x
     else if (source.kind === "web_list") candidates = await fetchWebList(source);
     else if (source.kind === "json_list") candidates = await fetchJsonList(source);
     else {
-      const x = await fetchXSearch(source, opts.xSince);
+      const read = await readX(source, opts);
+      const x = read.x;
       candidates = x.candidates;
       paidReceiptIds = x.receiptIds;
       if (x.lastId && !(nextCursor.lastTweetId && BigInt(String(nextCursor.lastTweetId)) > BigInt(x.lastId))) nextCursor.lastTweetId = x.lastId;
       // A search longer than one run keeps its position for the next runs (shown in the admin).
       if (x.backlog.length) nextCursor.xBacklog = x.backlog;
       else delete nextCursor.xBacklog;
-      detail = { pages: x.pages, truncated: x.truncated, backlog: x.backlog.length, backlogPages: x.backlogPages, dropped: x.dropped };
+      if (read.layer === "fxtwitter") {
+        if (x.fxBacklog?.length) nextCursor.fxBacklog = x.fxBacklog;
+        else delete nextCursor.fxBacklog;
+      }
+      detail = { pages: x.pages, truncated: x.truncated, backlog: x.backlog.length + (x.fxBacklog?.length ?? 0), backlogPages: x.backlogPages, dropped: x.dropped,
+        layer: read.layer, ...(x.fxRequests !== undefined ? { fxRequests: x.fxRequests } : {}),
+        ...(read.fxError ? { fxError: read.fxError } : {}) };
     }
     found = candidates.length;
     candidates = await listingEntries(source, candidates);
@@ -461,8 +486,9 @@ export async function collectXShard(key: string, sourceIds: string[]): Promise<{
   }
 }
 
-/** X accounts read by shard: a plain query and a watermark (the first fetch of an account is its own). */
-const sharded = () => sql`kind = 'x_search' AND config->>'query' ~* ${SHARDABLE_SQL} AND coalesce(config->>'searchType', 'Latest') = 'Latest' AND cursor->>'lastTweetId' IS NOT NULL`;
+/** X accounts read by shard: a plain query and a watermark (the first fetch of an account is its own).
+ * FxTwitter sources read one account per request, so they never join a paid shard. */
+const sharded = () => sql`kind = 'x_search' AND coalesce(config->>'provider', 'socialdata') = 'socialdata' AND config->>'query' ~* ${SHARDABLE_SQL} AND coalesce(config->>'searchType', 'Latest') = 'Latest' AND cursor->>'lastTweetId' IS NOT NULL`;
 
 /** Every minute: a shard is read when any of its accounts is due, all of them at once. */
 async function scheduleXShards(): Promise<number> {

@@ -27,7 +27,8 @@ after(async () => {
 
 const watch = "https://www.youtube.com/watch?v=COJAZQM1aeQ";
 const shorts = "https://www.youtube.com/shorts/FByNauagcbY";
-const videoUrls = [watch, shorts, "https://m.youtube.com/watch?v=COJAZQM1aeQ", "https://youtu.be/COJAZQM1aeQ", "https://www.youtube.com/embed/COJAZQM1aeQ", "https://vimeo.com/1105244173", "https://player.vimeo.com/video/1105244173"];
+const bilibili = "https://www.bilibili.com/video/BV1xx411c7XX";
+const videoUrls = [watch, shorts, "https://m.youtube.com/watch?v=COJAZQM1aeQ", "https://youtu.be/COJAZQM1aeQ", "https://www.youtube.com/embed/COJAZQM1aeQ", bilibili, "https://m.bilibili.com/video/BV1xx411c7XX?spm_id_from=333.1007", "https://www.bilibili.com/video/av170001", "https://b23.tv/abc123", "https://vimeo.com/1105244173", "https://player.vimeo.com/video/1105244173"];
 const playerText = "Back Skip navigation Search Search with your voice Sign in Video Build an App With Claude Design Tap to unmute Watch later Share Copy link Info Shopping If playback does not begin shortly, try restarting your device. Video unavailable. You are signed out. Videos you watch may be added to the TV watch history and influence TV recommendations. Cancel Confirm. I Tried The LAZIEST Way to Make Money With AI. ";
 const playerHtml = `<html><head><title>Watch video</title></head><body><article><p>${playerText.repeat(3)}</p></article></body></html>`;
 const feedBody = "The publisher supplied an actual explanatory text alongside this video. ".repeat(8);
@@ -38,12 +39,21 @@ const fixtures: Record<string, string> = {
   "/rss.xml": `<rss xmlns:media="http://search.yahoo.com/mrss/"><channel><item><title>Video</title><link>https://vimeo.com/1105244173</link><media:group><media:content medium="video" type="video/mp4"/><media:description>Published video description.</media:description></media:group></item></channel></rss>`,
   "/content.xml": atom(entry(watch, `<content type="html"><![CDATA[<p>${feedBody}</p>]]></content>`)),
   "/summary.xml": atom(entry(watch, `<summary>${feedBody}</summary>`)),
+  "/bilibili.xml": atom(entry(bilibili, `<summary>${feedBody}</summary><media:group><media:description>A Bilibili video description, not a transcript.</media:description></media:group>`)),
+  "/thumbnails.xml": atom(
+    entry("https://publisher.example/entry-thumbnail", `<media:thumbnail url="https://images.example/entry.jpg"/>`)
+    + entry("https://publisher.example/group-thumbnail", `<media:group><media:thumbnail url="/group.jpg"/></media:group>`)
+    + entry("https://publisher.example/content-thumbnail", `<media:group><media:content url="https://videos.example/video.mp4"><media:thumbnail url="https://images.example/content.jpg"/></media:content></media:group>`)
+    + entry("https://publisher.example/no-thumbnail")
+    + entry("https://publisher.example/bad-thumbnail", `<media:thumbnail url="https://[invalid"/>`),
+  ),
+  "/rss-thumbnails.xml": `<rss xmlns:media="http://search.yahoo.com/mrss/"><channel><item><title>Group thumbnail</title><link>https://publisher.example/rss-thumbnail</link><media:group><media:thumbnail url="https://images.example/rss-group.jpg"/></media:group></item></channel></rss>`,
   "/text.xml": atom(entry("https://publisher.example/article", `<summary>${feedBody}</summary>`)),
   "/article-with-video.xml": atom(entry("https://publisher.example/article", `<media:group><media:content medium="video"/><media:description>An accompanying clip.</media:description></media:group>`)),
 };
 for (const [path, xml] of Object.entries(fixtures)) mock.get("https://publisher.example").intercept({ path }).reply(200, xml, { headers: { "content-type": "application/atom+xml" } }).persist();
 let videoReads = 0;
-for (const origin of ["https://www.youtube.com", "https://m.youtube.com", "https://youtu.be", "https://vimeo.com", "https://player.vimeo.com"]) {
+for (const origin of ["https://www.youtube.com", "https://m.youtube.com", "https://youtu.be", "https://www.bilibili.com", "https://m.bilibili.com", "https://b23.tv", "https://vimeo.com", "https://player.vimeo.com"]) {
   mock.get(origin).intercept({ path: /.*/ }).reply(() => { videoReads++; return { statusCode: 200, data: playerHtml, responseOptions: { headers: { "content-type": "text/html" } } }; }).persist();
 }
 mock.get("https://publisher.example").intercept({ path: "/video-link" }).reply(302, "", { headers: { location: watch } });
@@ -69,8 +79,25 @@ test("actual textual feed content stays usable, while a video summary never beco
   assert.equal(summary!.bodyStatus, "none");
   assert.equal(summary!.bodyText, null);
   assert.equal(summary!.excerpt, feedBody.trim());
+  const [bilibiliEntry] = await read("/bilibili.xml", true);
+  assert.equal(bilibiliEntry!.bodyStatus, "none");
+  assert.equal(bilibiliEntry!.bodyText, null);
+  assert.equal(bilibiliEntry!.excerpt, "A Bilibili video description, not a transcript.");
   assert.equal((await read("/text.xml", true))[0]!.bodyStatus, "ok", "ordinary textual sources keep their explicit summary-is-body policy");
   assert.equal((await read("/article-with-video.xml"))[0]!.bodyStatus, "pending", "an article can have an accompanying video and still need its article body");
+});
+
+test("RSS and Atom media thumbnails use entry, group and content containers and ignore missing or bad addresses", async () => {
+  const items = await read("/thumbnails.xml");
+  assert.deepEqual(items.map(item => item.media), [
+    [{ kind: "image", url: "https://images.example/entry.jpg" }],
+    [{ kind: "image", url: "https://publisher.example/group.jpg" }],
+    [{ kind: "image", url: "https://images.example/content.jpg" }],
+    [],
+    [],
+  ]);
+  const [rss] = await read("/rss-thumbnails.xml");
+  assert.deepEqual(rss!.media, [{ kind: "image", url: "https://images.example/rss-group.jpg" }]);
 });
 
 test("known video pages cannot pass the generic body reader or page-fetch policy", () => {
@@ -78,8 +105,9 @@ test("known video pages cannot pass the generic body reader or page-fetch policy
     assert.equal(pageFetchable(url, "rss"), false, url);
     assert.equal(readable(playerHtml, url), null, url);
   }
-  for (const url of ["https://publisher.example/watch?v=article", "https://blog.youtube/news-and-events/article", "https://vimeo.com/blog/post", "https://youtube.com.example/article"]) assert.equal(pageFetchable(url, "rss"), true, url);
+  for (const url of ["https://publisher.example/watch?v=article", "https://blog.youtube/news-and-events/article", "https://www.bilibili.com/read/cv123", "https://www.bilibili.com/opus/123", "https://space.bilibili.com/123", "https://www.bilibili.com/video/", "https://b23.tv/", "https://vimeo.com/blog/post", "https://youtube.com.example/article"]) assert.equal(pageFetchable(url, "rss"), true, url);
   assert.ok(readable(`<html><body><article><p>${feedBody}</p><iframe src="${watch}"></iframe></article></body></html>`, "https://publisher.example/article"));
+  assert.ok(readable(`<html><body><article><p>${feedBody}</p></article></body></html>`, "https://www.bilibili.com/read/cv123"), "Bilibili articles still use the ordinary body reader");
 });
 
 test("manual extraction makes no video request, and an ordinary link redirected to a player cannot save its controls", async () => {

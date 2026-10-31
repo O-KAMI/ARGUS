@@ -1,6 +1,7 @@
 // X accounts via SocialData search, newest first. Verified publishers include their own thread
 // continuations; other replies stay excluded. Plain accounts share length-bounded search shards.
-import { searchTweets, tweetMedia, tweetText, type SdArticle, type SdTweet } from "../providers/socialdata.ts";
+import { searchTweets, tweetMedia, tweetText, type SdArticle, type SdMedia, type SdTweet } from "../providers/socialdata.ts";
+import { fetchFxTimeline as fetchFxTimelineApi, type FxStatus } from "../providers/fxtwitter.ts";
 import { ProviderRejectedError } from "../providers/receipts.ts";
 import type { XPostData } from "../content/materials.ts";
 import { sha256 } from "../lib/ids.ts";
@@ -26,6 +27,9 @@ export function toXPost(t: SdTweet): XPostData {
     quoted: q
       ? { authorName: q.user.name, handle: q.user.screen_name, text: tweetText(q), url: `https://x.com/${q.user.screen_name}/status/${q.id_str}`, media: tweetMedia(q) }
       : null,
+    repostedBy: t.reposted_by
+      ? { authorName: t.reposted_by.name, handle: t.reposted_by.screen_name, url: `https://x.com/${t.reposted_by.screen_name}` }
+      : null,
   };
 }
 
@@ -39,6 +43,13 @@ export function linksXArticle(text: string | null | undefined): boolean {
 /** Nothing but the article's link: without the article there is nothing to judge (under 30 characters left). */
 export function onlyXArticleLink(text: string | null | undefined): boolean {
   return linksXArticle(text) && (text ?? "").replace(X_ARTICLE_LINK, "").trim().length < 30;
+}
+
+/** The post's own X Article in SocialData's shape, so both providers share one formatter. */
+export function fxArticle(status: FxStatus): SdArticle | null {
+  const article = status.article;
+  const blocks = article?.content?.blocks;
+  return article && Array.isArray(blocks) && blocks.length ? { title: article.title, content_state: { blocks } } : null;
 }
 
 /** An X Article as plain text with Markdown-like headings, quotes and list marks; media blocks are left out. */
@@ -70,6 +81,181 @@ export function tweetToCandidate(t: SdTweet): Candidate {
     xPost: post,
     media: post.media ?? [],
     raw: { favorite: t.favorite_count ?? null, retweet: t.retweet_count ?? null, views: t.views_count ?? null },
+  };
+}
+
+function fxMedia(status: FxStatus): SdMedia[] {
+  const all = Array.isArray(status.media?.all) ? status.media.all : [];
+  return all.flatMap((m): SdMedia[] => {
+    const type = m.type === "video" ? "video" : m.type === "gif" || m.type === "animated_gif" ? "animated_gif" : "photo";
+    // A video's playable URL is not an image: show its thumbnail and open the post for playback.
+    const url = type === "photo" ? m.url : (m.thumbnail_url ?? m.url);
+    return url ? [{ type, media_url_https: url, original_info: { width: m.width, height: m.height } }] : [];
+  });
+}
+
+function fxDate(status: FxStatus, fallback?: string): string | null {
+  const ms = typeof status.created_timestamp === "number" ? status.created_timestamp * 1000 : Date.parse(status.created_at ?? "");
+  if (Number.isFinite(ms)) return new Date(ms).toISOString();
+  return fallback ?? null;
+}
+
+function fxToTweet(status: FxStatus, fallbackDate?: string): SdTweet | null {
+  const date = fxDate(status, fallbackDate);
+  // A malformed entry is skipped, not turned into a chapter that blocks the whole free layer.
+  if (!date) return null;
+  const media = fxMedia(status);
+  return {
+    id_str: status.id,
+    tweet_created_at: date,
+    full_text: status.text ?? "",
+    lang: status.lang,
+    user: {
+      name: status.author?.name ?? status.author?.screen_name ?? "",
+      screen_name: status.author?.screen_name ?? "",
+      profile_image_url_https: status.author?.avatar_url,
+    },
+    in_reply_to_status_id_str: status.replying_to?.status ?? null,
+    in_reply_to_screen_name: status.replying_to?.screen_name ?? null,
+    quoted_status: status.quote ? fxToTweet(status.quote, date) : null,
+    is_quote_status: !!status.quote,
+    entities: media.length ? { media } : undefined,
+    extended_entities: media.length ? { media } : undefined,
+    favorite_count: status.likes,
+    retweet_count: status.reposts,
+    reply_count: status.replies,
+    quote_count: status.quotes,
+    views_count: status.views,
+    reposted_by: status.reposted_by
+      ? { name: status.reposted_by.name ?? status.reposted_by.screen_name ?? "", screen_name: status.reposted_by.screen_name ?? "", profile_image_url_https: status.reposted_by.avatar_url }
+      : null,
+  };
+}
+
+/** Reposts are kept even when the original was a reply: the followed account chose to carry it. */
+function keepsFxStatus(status: FxStatus, handle: string, selfThreads: boolean): boolean {
+  if (status.reposted_by) return true;
+  if (!status.replying_to) return true;
+  return selfThreads && status.replying_to.screen_name?.toLowerCase() === handle.toLowerCase();
+}
+
+/** A free account import or outage repair never turns into an unbounded walk through its archive. */
+const FX_MAX_PAGES = 3;
+const FX_BACKLOG_MS = 7 * 86_400_000;
+const FX_REQUEST_BUDGET = 12;
+const FX_MAX_BACKLOG = 3;
+
+/** An older FxTwitter stretch, with the boundary that was in force when it was deferred. */
+export interface FxBacklog {
+  next: string;
+  untilId: string | null;
+  publishedAfter: string;
+}
+
+function savedFxBacklog(value: unknown): FxBacklog[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((b): FxBacklog[] => {
+    if (!b || typeof b !== "object") return [];
+    const item = b as Record<string, unknown>;
+    if (typeof item.next !== "string" || !item.next || typeof item.publishedAfter !== "string" || !Number.isFinite(Date.parse(item.publishedAfter))) return [];
+    if (item.untilId !== null && (typeof item.untilId !== "string" || !/^\d+$/.test(item.untilId))) return [];
+    return [{ next: item.next, untilId: item.untilId, publishedAfter: item.publishedAfter }];
+  });
+}
+
+/** Reposts carry an old original's id and date, so only the account's own posts prove coverage. */
+function fxBoundary(statuses: FxStatus[], handle: string, untilId: string | null, floor: number): "watermark" | "time" | null {
+  for (const status of statuses) {
+    if (status.reposted_by || status.author?.screen_name?.toLowerCase() !== handle.toLowerCase()) continue;
+    const date = fxDate(status);
+    if (date && Date.parse(date) <= floor) return "time";
+    if (untilId && /^\d+$/.test(status.id) && BigInt(status.id) <= BigInt(untilId)) return "watermark";
+  }
+  return null;
+}
+
+/**
+ * The newest page plus bounded older stretches. The first import reads at most seven days; an existing
+ * source pages only when its newest page has not met the old watermark (a detected collection hole).
+ * A deferred cursor keeps its original watermark and time floor, so a busy account makes progress over
+ * later runs instead of restarting a full backfill every time. Raw retries share the same request budget.
+ */
+export async function fetchFxSource(source: SourceRow): Promise<XFetch> {
+  const handle = xHandle(source.config);
+  if (!handle) throw new FetchError("query missing");
+  const selfThreads = source.config.publisherRole === "organization" || source.config.publisherRole === "person";
+  const saved = savedFxBacklog(source.cursor?.fxBacklog);
+  const watermark = typeof source.cursor?.lastTweetId === "string" && /^\d+$/.test(source.cursor.lastTweetId) ? source.cursor.lastTweetId : null;
+  const budget = { remaining: FX_REQUEST_BUDGET };
+  const tweets = new Map<string, SdTweet>();
+  let totalPages = 0;
+  let newestPages = 0;
+  let dropped = 0;
+
+  const readStretch = async (stretch: { next: string | null; untilId: string | null; publishedAfter: string }, pageLimit: number, initial: boolean) => {
+    let next = stretch.next;
+    const floor = Date.parse(stretch.publishedAfter);
+    const startPages = totalPages;
+    while (totalPages < FX_MAX_PAGES && totalPages - startPages < pageLimit && budget.remaining > 0) {
+      let timeline: Awaited<ReturnType<typeof fetchFxTimelineApi>>;
+      try {
+        timeline = await fetchFxTimelineApi(handle, next, { requestBudget: budget });
+      } catch (error) {
+        // The newest page remains mandatory: without it the existing RSS/SocialData fallback still runs.
+        if (initial && totalPages === startPages) throw error;
+        return { backlog: next ? { ...stretch, next } : null, failed: true };
+      }
+      totalPages += 1;
+      for (const status of timeline.statuses) {
+        if (!keepsFxStatus(status, handle, selfThreads)) continue;
+        const tweet = fxToTweet(status);
+        if (!tweet) continue;
+        // A newly discovered repost still matters when its original predates the archive window.
+        if (!status.reposted_by && Date.parse(tweet.tweet_created_at) < floor) continue;
+        if (!tweets.has(tweet.id_str)) tweets.set(tweet.id_str, tweet);
+      }
+      const boundary = fxBoundary(timeline.statuses, handle, stretch.untilId, floor);
+      if (boundary || !timeline.cursor) return { backlog: null, failed: false };
+      next = timeline.cursor;
+    }
+    return { backlog: next ? { ...stretch, next } : null, failed: false };
+  };
+
+  // With older work outstanding, reserve all but one page for it; new posts still get checked first.
+  const newestLimit = saved.length ? 1 : FX_MAX_PAGES;
+  const newest = await readStretch({ next: null, untilId: watermark, publishedAfter: new Date(Date.now() - FX_BACKLOG_MS).toISOString() }, newestLimit, true);
+  newestPages = totalPages;
+  const pending = [...saved];
+  if (newest.backlog) pending.push(newest.backlog);
+
+  let index = 0;
+  let failed = false;
+  while (index < pending.length && totalPages < FX_MAX_PAGES && budget.remaining > 0 && !failed) {
+    const read = await readStretch(pending[index]!, FX_MAX_PAGES - totalPages, false);
+    if (read.backlog) pending[index] = read.backlog;
+    else pending.splice(index, 1);
+    if (!read.backlog) continue;
+    index += 1;
+    failed = read.failed;
+  }
+  while (pending.length > FX_MAX_BACKLOG) {
+    pending.shift();
+    dropped += 1;
+  }
+
+  const all = [...tweets.values()];
+  const lastId = all.reduce<string | null>((max, t) => (max === null || BigInt(t.id_str) > BigInt(max) ? t.id_str : max), null);
+  return {
+    candidates: all.map(tweetToCandidate),
+    receiptIds: [],
+    lastId,
+    backlog: [],
+    fxBacklog: pending,
+    fxRequests: FX_REQUEST_BUDGET - budget.remaining,
+    pages: newestPages,
+    truncated: pending.length > 0,
+    backlogPages: totalPages - newestPages,
+    dropped,
   };
 }
 
@@ -108,6 +294,10 @@ export interface XRead {
 
 export interface XFetch extends Omit<XRead, "tweets"> {
   candidates: Candidate[];
+  /** Free-provider continuations stay separate from paid SocialData query cursors. */
+  fxBacklog?: FxBacklog[];
+  /** Raw FxTwitter HTTP requests, including retries. */
+  fxRequests?: number;
 }
 
 /**

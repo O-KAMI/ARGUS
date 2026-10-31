@@ -399,3 +399,65 @@ export interface AdminSelectBenchCases {
   rows: Array<{ case_id: string; title: string; stratum: string | null; gold: "select" | "reject" | "either"; by_model: Record<string, AdminSelectBenchDecision> }>;
   strata: Array<{ stratum: string | null; n: number }>;
 }
+
+// Selection labelling
+
+/**
+ * The human answer a calibration reads. `either` (both decisions acceptable) belongs to a gold file the
+ * operator writes by hand, not to a label here: labelling also decides the item's public `selected`, and
+ * "either" decides nothing.
+ */
+export type AdminLabelDecision = "select" | "reject";
+
+/** What the page lists: items still without a human answer, the ones already answered, or both. */
+export type AdminLabelingState = "awaiting" | "labelled" | "all";
+
+export interface AdminLabelingRow {
+  id: string;
+  title: string;
+  url: string;
+  source_name: string;
+  tier: string;
+  discovered_at: Timestamp;
+  published_at: Timestamp | null;
+  /** The stored judgement, read as it is: relevance, the mean score and the copy the site wrote. */
+  relevance: string | null;
+  score: number | null;
+  analysis_selected: boolean | null;
+  category: string | null;
+  title_zh: string | null;
+  summary_zh: string | null;
+  reason_zh: string | null;
+  analyzed_at: Timestamp | null;
+  /** Whether that judgement was produced under the learning track's own wording, or the news track's. */
+  scored_learning: boolean;
+  /** The public projection as it stands now. */
+  published_selected: boolean | null;
+  visibility: string | null;
+  /** editorial_overrides version to send back with a label; 0 while the item has no manual setting. */
+  override_version: number;
+  override_selected: boolean | null;
+  gold: { decision: AdminLabelDecision; actor: string; created_at: Timestamp } | null;
+}
+
+export interface AdminLabeling {
+  page: number;
+  state: AdminLabelingState;
+  rows: AdminLabelingRow[];
+  counts: { items: number; scored: number; labelled: number; awaiting: number };
+}
+
+export interface AdminLabelSelection {
+  decision: AdminLabelDecision;
+  reason: string;
+  version: number;
+  /** The operator's own grouping for the exported gold set (`samplingContext.samplingStratum`), optional. */
+  stratum?: string;
+}
+
+/** What a label did: the decision recorded, and the `selected` the public projection now carries. */
+export interface AdminLabelResult {
+  caseId: string;
+  decision: AdminLabelDecision;
+  selected: boolean | null;
+}

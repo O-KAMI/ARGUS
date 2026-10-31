@@ -15,6 +15,8 @@ x-backend: &backend
     DATABASE_URL: postgres://aihot:${POSTGRES_PASSWORD:-aihot}@db:5432/aihot
     AIHOT_DATA_DIR: /data
     API_BASE_URL: http://api:3001
+    PRIVATE_ACCESS: ${PRIVATE_ACCESS:-true}
+    INTERNAL_TOKEN: ${INTERNAL_TOKEN:-}
     # No proxy in front limits pushes to /api/ingest/items: the api does (per client and minute; 0 turns it off).
     INGEST_RATE_LIMIT: ${INGEST_RATE_LIMIT:-10}
   volumes:
@@ -75,6 +77,9 @@ services:
       API_BASE_URL: http://api:3001
       SITE_URL: ${SITE_URL:-http://localhost:3000}
       TRUST_PROXY: ${TRUST_PROXY:-false}
+      # The reader gate lives in the web process and the api checks the same session; both default to private.
+      PRIVATE_ACCESS: ${PRIVATE_ACCESS:-true}
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN:-}
       AIHOT_RELEASE: ${AIHOT_RELEASE:-}
       WEB_HOST: 0.0.0.0
       WEB_PORT: "3000"

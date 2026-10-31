@@ -10,7 +10,7 @@ import { relatedEvidence, RELATED_MIN_REPORTS } from "../events/related.ts";
 import { pickRepresentative, REPRESENTATIVE_COLUMNS, type RepresentativeIdentity } from "./representative.ts";
 import { compositeCondition, evidenceCondition, listedCondition, storyReportCondition } from "./scope.ts";
 import { publicSourceName } from "./rules.ts";
-import { latestHotRanking, rankingExtras } from "./hot.ts";
+import { latestHotRanking, loadImportantAnnouncements, rankingExtras } from "./hot.ts";
 import { storyTexts } from "./story-text.ts";
 import { topicsOfStory } from "./topics.ts";
 import { itemUrl, storyUrl, v1StoryApiUrl, v1StoryUrl } from "./links.ts";
@@ -241,8 +241,8 @@ async function queryHotCovers({ entries }: HotRanking) {
 }
 
 export async function loadHot(): Promise<HotResponse> {
-  const ranking = await latestHotRanking();
-  if (!ranking) return { computedAt: null, windowHours: 48, entries: [] };
+  const [ranking, announcements] = await Promise.all([latestHotRanking(), loadImportantAnnouncements()]);
+  if (!ranking) return { computedAt: null, windowHours: 48, entries: [], announcements };
   const at = new Date(ranking.computedAt);
   const [sparks, covers, extras] = await Promise.all([
     sparklines(
@@ -255,6 +255,7 @@ export async function loadHot(): Promise<HotResponse> {
   return {
     computedAt: ranking.computedAt,
     windowHours: 48,
+    announcements,
     entries: ranking.entries.map((e) => {
       const picture = covers.get(e.storyId);
       const coverUrl = picture ? proxiedImage(picture.url, "full") : null;

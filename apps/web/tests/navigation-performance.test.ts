@@ -23,7 +23,7 @@ const readerBody=Array.from({length:30},(_,i)=>`<p>阅读段落 ${i}：先阅读
   +`<pre><code>${codeSource}</code></pre><pre><code>x = 1</code></pre>`
   +Array.from({length:12},(_,i)=>`<img src="/reader-image/${i}.svg" alt="正文配图 ${i}" width="640" height="360" loading="lazy">`).join('')
   +'<img src="/reader-image/tiny.svg" alt="小图标" width="16" height="16" loading="lazy"><a href="https://example.org"><img src="/reader-image/linked.svg" alt="链接图片" width="640" height="360" loading="lazy"></a>';
-const report = (kind:'daily'|'weekly'|'monthly'): ReportDetail => ({kind,key:kind==='daily'?'2026-10-04':kind==='weekly'?'2026-W40':'2026-10',issueNumber:1,title:'Fixture '+kind,generatedAt:at,lead:{title:'Fixture '+kind,leadParagraph:'Fixture report'},leadItemId:null,overview:null,highlights:[],sections:[],flashes:[],cover:null,metrics:{},readingMinutes:1,prev:null,next:null});
+const report = (kind:'daily'|'weekly'|'monthly'): ReportDetail => ({kind,key:kind==='daily'?'2026-10-04':kind==='weekly'?'2026-W40':'2026-10',issueNumber:1,title:'Fixture '+kind,generatedAt:at,windowStart:'2026-10-03T16:00:00.000Z',windowEnd:'2026-10-04T16:00:00.000Z',lead:{title:'Fixture '+kind,leadParagraph:'Fixture report'},leadItemId:null,overview:null,highlights:[],sections:[],flashes:[],cover:null,metrics:{},readingMinutes:1,prev:null,next:null});
 const hits: string[] = [];
 let suggestionsVersion=1;
 let failing='';
@@ -39,7 +39,7 @@ const api=fakeApi((url,res,req)=>{
   if(p===failing){res.statusCode=503;return {code:'unavailable'};}
   if(p==='/api/site/search/suggestions')return {topics:[{slug:'openai',name:'OpenAI',group:'company'}],hot:[{rank:1,title:'建议版本 '+suggestionsVersion,to:'/story/fixture'}]};
   if(p==='/api/site/topics')return {groups:[],topics:[{slug:'openai',name:'OpenAI',group:'company',definition:'Fixture',brand:null,total:0,recent:0,indexable:false,latest:null}]};
-  if(p==='/api/site/hot')return {computedAt:at,windowHours:48,entries:[{rank:1,story:{publicId:'fixture',title:'建议版本 '+suggestionsVersion},heat:10,trend:'flat',trendPct:0,badges:[],participantCount:0,sourceCount:0,sourceNames:[],participants:[],spark:[],summary:null,latest:null,cover:null}]};
+  if(p==='/api/site/hot')return {computedAt:at,windowHours:48,entries:[{rank:1,story:{publicId:'fixture',title:'建议版本 '+suggestionsVersion},heat:10,trend:'flat',trendPct:0,badges:[],participantCount:0,sourceCount:0,sourceNames:[],participants:[],spark:[],summary:null,latest:null,cover:null}],announcements:[]};
   if(p==='/api/site/timeline'){
     res.setHeader('X-Accel-Expires','@'+(Math.floor(Date.now()/1000)+ttl));
     const category=url.searchParams.get('category');
@@ -92,15 +92,15 @@ test('SSR list and visited query variants return offline without another read',a
     await expect(page.getByRole('link',{name:'性能检查文章',exact:true})).toBeVisible({timeout:1500});
     await context.setOffline(false);
     await page.getByRole('button',{name:/^筛选/}).click();
-    await page.getByRole('link',{name:'模型',exact:true}).click();
-    await expect(page.getByRole('link',{name:'分类 ai-models',exact:true})).toBeVisible();
+    await page.getByRole('link',{name:'Agent / Skills',exact:true}).click();
+    await expect(page.getByRole('link',{name:'Agent / Skills',exact:true})).toBeVisible();
     await page.getByRole('button',{name:/^筛选/}).click();
-    await page.getByRole('link',{name:'产品',exact:true}).click();
-    await expect(page.getByRole('link',{name:'分类 ai-products',exact:true})).toBeVisible();
+    await page.getByRole('link',{name:'推理',exact:true}).click();
+    await expect(page.getByRole('link',{name:'推理',exact:true})).toBeVisible();
     await context.setOffline(true);
     await page.goBack();
-    await expect(page.getByRole('link',{name:'分类 ai-models',exact:true})).toBeVisible({timeout:1500});
-    await expect(page.locator('link[rel=canonical]')).toHaveAttribute('href',origin+'/?category=ai-models');
+    await expect(page.getByRole('link',{name:'Agent / Skills',exact:true})).toBeVisible({timeout:1500});
+    await expect(page.locator('link[rel=canonical]')).toHaveAttribute('href',origin+'/?field=Agent');
   }finally{await context.close();}
 });
 
@@ -114,7 +114,7 @@ test('hover downloads nothing, a press fetches article data once for its click, 
     // In one task, as a scroll moves within the hold that makes a still touch a press; two calls can be further apart.
     await link.evaluate(a=>{for(const type of ['touchstart','touchmove'])a.dispatchEvent(new TouchEvent(type,{bubbles:true,cancelable:true,composed:true}));});
     await link.hover();await page.waitForTimeout(300);
-    await page.getByRole('heading',{name:'精选',exact:true}).click();
+    await page.getByRole('heading',{name:'今日热点',exact:true}).click();
     assert.equal(hits.slice(start).filter(x=>x.startsWith('/api/site/items/')).length,0);
     await link.click();await expect(page.getByText('固定正文',{exact:true})).toBeVisible();
     assert.equal(hits.slice(start).filter(x=>x.startsWith('/api/site/items/')).length,1,'the click reuses the prefetch its press started');
@@ -123,7 +123,7 @@ test('hover downloads nothing, a press fetches article data once for its click, 
       await visit(freshPage,origin+'/');failing='/api/site/items/navigation-fixture';
       const failed=freshPage.waitForResponse(r=>r.url().includes('/items/navigation-fixture.data')&&r.status()===503);
       await freshPage.getByRole('link',{name:'性能检查文章',exact:true}).dispatchEvent('pointerdown',press);await failed;
-      await expect(freshPage.getByRole('heading',{name:'精选',exact:true})).toBeVisible();
+      await expect(freshPage.getByRole('heading',{name:'今日热点',exact:true})).toBeVisible();
     }finally{await fresh.close();}
   }finally{failing='';await context.close();}
 });
@@ -152,18 +152,18 @@ test('a press on a selected link preserves visited data and the next revisit sta
   await context.route('**/*.data*',route=>route.continue());
   page.on('request',request=>{if(request.url().includes('.data'))requests.push(request.url());});
   try{
-    await visit(page,origin+'/');
-    await page.getByRole('link',{name:'模型',exact:true}).click();
-    await expect(page.getByRole('link',{name:'分类 ai-models',exact:true})).toBeVisible();
-    await page.getByRole('link',{name:'模型',exact:true}).dispatchEvent('pointerdown',{button:0,pointerType:'mouse',isPrimary:true});
+    await visit(page,origin+'/daily');
+    await page.getByRole('link',{name:'周报',exact:true}).click();
+    await expect(page.locator('#report-start')).toContainText('周报');
+    await page.getByRole('link',{name:'日报',exact:true}).dispatchEvent('pointerdown',{button:0,pointerType:'mouse',isPrimary:true});
     await page.waitForTimeout(150);
-    await page.getByRole('link',{name:'产品',exact:true}).click();
-    await expect(page.getByRole('link',{name:'分类 ai-products',exact:true})).toBeVisible();
-    await page.getByRole('link',{name:'产品',exact:true}).dispatchEvent('pointerdown',{button:0,pointerType:'mouse',isPrimary:true});
+    await page.getByRole('link',{name:'月报',exact:true}).click();
+    await expect(page.locator('#report-start')).toContainText('月报');
+    await page.getByRole('link',{name:'月报',exact:true}).dispatchEvent('pointerdown',{button:0,pointerType:'mouse',isPrimary:true});
     await page.waitForTimeout(150);
     const before=requests.length;
-    await page.getByRole('link',{name:'模型',exact:true}).click();
-    await expect(page.getByRole('link',{name:'分类 ai-models',exact:true})).toBeVisible();
+    await page.getByRole('link',{name:'日报',exact:true}).click();
+    await expect(page.locator('#report-start')).toContainText('日报');
     assert.deepEqual(requests.slice(before),[],'neither prefetch nor navigation may evict and reload a still-valid visited page');
   }finally{await context.close();}
 });

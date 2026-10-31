@@ -5,6 +5,7 @@ import { OAUTH_PROBE_PATHS, resolveRedirect } from "@aihot/contracts/http-policy
 import { sql } from "@aihot/backend/db";
 import { logError } from "@aihot/backend/lib/log-error";
 import { serverModules } from "@aihot/backend/modules";
+import { registerPrivateAccess } from "./private.ts";
 import { registerSite } from "./routes/site.ts";
 import { registerOg } from "./routes/og.ts";
 import { registerAdminAuth } from "./routes/admin-auth.ts";
@@ -89,6 +90,7 @@ export async function buildApp(): Promise<FastifyInstance> {
     return reply.header("Cache-Control", "no-store").send({ ok: true, db: "ok", ms: Math.round(performance.now() - started), release: process.env.AIHOT_RELEASE ?? "dev" });
   });
 
+  registerPrivateAccess(app);
   registerSite(app);
   registerOg(app);
   registerAdminAuth(app);

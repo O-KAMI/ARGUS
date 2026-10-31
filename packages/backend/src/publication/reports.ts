@@ -324,8 +324,9 @@ async function neighbors(kind: ReportKind, key: string): Promise<{ prev: string 
 
 export async function loadReport(kind: ReportKind, key: string): Promise<ReportDetail | null> {
   // Its number counts every issue of the kind up to it, as the index numbers them (reportIndexRows).
-  const [r] = await sql<(Pick<ReportRow, "content" | "generated_at"> & { issue_number: number })[]>`
-    SELECT r.content, r.generated_at, (SELECT count(*)::int FROM reports earlier WHERE earlier.kind = r.kind AND earlier.key <= r.key) AS issue_number
+  const [r] = await sql<(Pick<ReportRow, "window_start" | "window_end" | "content" | "generated_at"> & { issue_number: number })[]>`
+    SELECT r.window_start, r.window_end, r.content, r.generated_at,
+      (SELECT count(*)::int FROM reports earlier WHERE earlier.kind = r.kind AND earlier.key <= r.key) AS issue_number
     FROM reports r WHERE r.kind = ${kind} AND r.key = ${key}`;
   if (!r) return null;
   const c = r.content;
@@ -368,6 +369,8 @@ export async function loadReport(kind: ReportKind, key: string): Promise<ReportD
     issueNumber: r.issue_number,
     title,
     generatedAt: r.generated_at.toISOString(),
+    windowStart: r.window_start.toISOString(),
+    windowEnd: r.window_end.toISOString(),
     lead: hasCitedLead
       ? (named ? { title: named.title, leadParagraph: (kind === "daily" ? named.leadParagraph : overview) ?? "" } : null)
       : kind === "daily" ? c.lead ?? null

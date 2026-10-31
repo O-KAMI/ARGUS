@@ -3,7 +3,10 @@
 //; its address from SITE_URL.
 import type { MetaDescriptor } from "react-router";
 import { REPORT_NAMES, reportDateLabel, type ReportDetail, type StoryDetail, type TimelineFilters } from "@aihot/contracts/site";
-import { isCategoryKey, isChannelKey } from "@aihot/contracts/taxonomy";
+import {
+  CATEGORY_LABELS, CHANNEL_LABELS, FIELD_FILTERS, GENRE_FILTERS, PLATFORM_LABELS,
+  isCategoryKey, isChannelKey, isFieldTag, isGenreTag, isPlatformKey,
+} from "@aihot/contracts/taxonomy";
 import { SITE, subjectAfter, withSubject } from "@aihot/site";
 
 /**
@@ -44,25 +47,49 @@ export function listPath(path: string, params: Record<string, string | number | 
   return qs ? `${path}?${qs}` : path;
 }
 
-/** The feed filters an address asks for; an unknown channel or category means none. */
+/** The feed filters an address asks for; an unknown channel, category, genre or field means none. */
 export function readFilters(params: URLSearchParams): TimelineFilters {
   const channel = params.get("channel") ?? "all";
   const category = params.get("category");
+  const genre = params.get("genre");
+  const field = params.get("field");
+  const platform = params.get("platform") ?? "all";
   return {
     channel: isChannelKey(channel) ? channel : "all",
     category: category && isCategoryKey(category) ? category : null,
     tag: params.get("tag")?.trim() || null,
+    genre: genre && isGenreTag(genre) ? genre : null,
+    field: field && isFieldTag(field) ? field : null,
+    platform: isPlatformKey(platform) ? platform : "all",
   };
 }
 
-/** Feed filters as list address parameters: the default channel and unset filters are left out. */
+/** Feed filters as list address parameters: the default channel/platform and unset filters are left out. */
 export function filterParams(f: TimelineFilters) {
-  return { channel: f.channel === "all" ? null : f.channel, category: f.category, tag: f.tag };
+  return {
+    channel: f.channel === "all" ? null : f.channel,
+    category: f.category,
+    tag: f.tag,
+    genre: f.genre ?? null,
+    field: f.field ?? null,
+    platform: !f.platform || f.platform === "all" ? null : f.platform,
+  };
 }
 
 /** Filter combinations are browsing views; the unfiltered feed and its archive pages remain indexable. */
 export function hasFeedFilters(filters: TimelineFilters | undefined): boolean {
-  return !!filters && (filters.channel !== "all" || !!filters.category || !!filters.tag);
+  return !!filters && (filters.channel !== "all" || !!filters.category || !!filters.tag
+    || !!filters.genre || !!filters.field || (!!filters.platform && filters.platform !== "all"));
+}
+
+/** The labels of the filters in use, in the order the filter row shows them. */
+export function filterLabels(f: TimelineFilters): string[] {
+  const genre = f.genre ? GENRE_FILTERS.find((x) => x.tag === f.genre)?.label ?? f.genre : null;
+  const field = f.field ? FIELD_FILTERS.find((x) => x.tag === f.field)?.label ?? f.field : null;
+  const platform = f.platform && f.platform !== "all" ? PLATFORM_LABELS[f.platform] : null;
+  const category = f.category ? CATEGORY_LABELS[f.category] : null;
+  const channel = f.channel === "firstParty" ? CHANNEL_LABELS.firstParty : null;
+  return [genre, field, platform, channel, category, f.tag ? `#${f.tag}` : null].filter((x): x is string => !!x);
 }
 
 /** "Title · Site". */

@@ -1,7 +1,8 @@
 // Event grouping invariants: an editor's decision made while the model is deciding stands; a
 // revision keeps its membership without asking the model; an explicit regroup drops the automatic
 // membership at once and decides again; a story's root is its earliest fact that still holds reports;
-// two stories a report ties together merge only when both models see one story in their roots.
+// two stories a report ties together merge only when both models see one story in their roots;
+// a track:learning source is judged by the learning wording and records that wording's version.
 import { embeddingsStub, gate, stub, tag } from "./setup.ts";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -14,6 +15,10 @@ import { groupArticle } from "@aihot/backend/events/group";
 import { mergeStoryInto } from "@aihot/backend/events/merge";
 import { candidateViews } from "@aihot/backend/events/recall";
 import { stopBoss } from "@aihot/backend/jobs/queue";
+import { promptText } from "@aihot/backend/editorial/prompts";
+import {
+  BATCH_PROMPT_VERSION, RELATE_PROMPT_VERSION, batchPromptVersion, batchSystem, pairSystem, relatePromptVersion,
+} from "@aihot/backend/events/relate";
 import { publishArticle } from "@aihot/backend/publication/publish";
 
 const T = tag();
@@ -30,10 +35,13 @@ let relation: Rel = "SAME_OCCURRENCE";
 let pairRelation: Rel | null = null;
 /** Answer every candidate of a batch prompt, not only the first. */
 let answerAll = false;
+/** The system wording of every chat request of the run, in order. */
+const systems: string[] = [];
 const provider = await stub(async (_hit, req) => {
   asked.open();
   await hold.promise;
   const body = JSON.parse(req.body) as { messages: Array<{ content: string }> };
+  systems.push(body.messages[0]!.content);
   const user = body.messages[1]!.content;
   const pair = user.includes("报道 A");
   const ids = [...user.matchAll(/【候选 (C\d+)】/g)].map((m) => m[1]!);
@@ -68,9 +76,9 @@ function randomText() {
   return String.fromCharCode(...chars);
 }
 
-async function report(suffix: string, title = FACT_TITLE, summary = "摘要", publishedAt = new Date()) {
+async function report(suffix: string, title = FACT_TITLE, summary = "摘要", publishedAt = new Date(), sourceId = SOURCE) {
   const { articleId } = await upsertMaterial({
-    sourceId: SOURCE, url: `https://example.com/events-${T}-${suffix}`, title: `Model launch ${T} ${suffix}`, bodyText: "A new model.", bodyStatus: "ok", via: "fetch", publishedAt,
+    sourceId, url: `https://example.com/events-${T}-${suffix}`, title: `Model launch ${T} ${suffix}`, bodyText: "A new model.", bodyStatus: "ok", via: "fetch", publishedAt,
   });
   await sql`INSERT INTO analyses (article_id, input_revision, origin, relevance, category, title_zh, summary_zh, score, selected, output)
             VALUES (${articleId}, 1, 'rule', 'pass', 'ai-models', ${title}, ${summary}, 80, false, ${sql.json({ fact: { title, subject: "测试", action: "发布", object: "模型" } })})`;
@@ -324,7 +332,7 @@ test("a newly identified composite loses automatic membership and cannot serve a
   await setScope(old.articleId, "composite");
   const actual = await storyWithRoot(text, "actual-product-root");
   const hits = provider.hits();
-  assert.deepEqual(await consolidate([old.storyId, actual.storyId]), []);
+  assert.deepEqual(await consolidate([old.storyId, actual.storyId], "news"), []);
   assert.equal(provider.hits(), hits, "known composite is not root evidence even before repair");
   const result = await groupArticle(old.articleId);
   assert.equal(result.verdict, "roundup", "a normal grouping pass does not keep a newly identified composite");
@@ -414,7 +422,7 @@ test("editor-confirmed identities skip automatic comparison and merging, while e
   const two = await storyWithRoot(randomText(), "manual-two");
   await sql`UPDATE stories SET origin = 'manual' WHERE id = ${one.storyId}`;
   const hits = provider.hits();
-  assert.deepEqual(await consolidate([one.storyId, two.storyId]), []);
+  assert.deepEqual(await consolidate([one.storyId, two.storyId], "news"), []);
   assert.equal(provider.hits(), hits, "no paid comparison can undo an editor-confirmed identity");
   assert.equal(await mergeStoryInto(one.storyId, two.storyId, "automatic", "grouping"), null);
   assert.equal(await mergeStoryInto(two.storyId, one.storyId, "automatic", "grouping"), null);
@@ -427,7 +435,7 @@ test("an editor identity correction during comparison prevents merging and is no
   const one = await storyWithRoot(randomText(), "manual-race-one");
   const two = await storyWithRoot(randomText(), "manual-race-two");
   hold = gate(); asked = gate();
-  const pending = consolidate([one.storyId, two.storyId]);
+  const pending = consolidate([one.storyId, two.storyId], "news");
   await Promise.race([asked.promise, pending.then(() => assert.fail("comparison ended without asking"))]);
   await sql`UPDATE stories SET origin = 'manual' WHERE id = ${one.storyId}`;
   hold.open();
@@ -515,4 +523,62 @@ test("stories that reports keep tying together without merging list each other a
     pairRelation = null;
     answerAll = false;
   }
+});
+
+// The learning track merges on the asset, not on the occurrence: five people recommending one
+// repository are five occurrences of one asset, and only the asset wording catches them across
+// platforms (the same X post and the same bilibili tutorial share no URL and no asset key).
+test("the learning track is grouped by its own wording, and each track records the version it was judged under", async () => {
+  hold = gate();
+  hold.open();
+  const learningSource = `test-events-learning-${T}`;
+  await sql`INSERT INTO sources (id, name, kind, tier, participation_mode, tags, next_fetch_at)
+            VALUES (${learningSource}, 'Test learning', 'rss', 'T2', 'editorial', ${["track:learning"]}, '2100-01-01')`;
+  const news = await report("wording-news");
+  const learning = await report("wording-learning", FACT_TITLE, "摘要", new Date(), learningSource);
+
+  let asked0 = systems.length;
+  await groupArticle(news);
+  const newsSystems = systems.slice(asked0);
+  asked0 = systems.length;
+  await groupArticle(learning);
+  const learningSystems = systems.slice(asked0);
+
+  assert.ok(newsSystems.includes(promptText("group-batch")), "an untagged source is still judged by the news wording");
+  assert.ok(!newsSystems.includes(promptText("group-batch-learning")));
+  assert.ok(learningSystems.includes(promptText("group-batch-learning")), "a track:learning source is judged by the asset wording");
+  assert.ok(!learningSystems.includes(promptText("group-batch")));
+
+  // The decision row points at the receipt that produced it, so an old decision keeps naming the
+  // wording it was judged under and is never re-read against a newer one.
+  const recordedVersion = async (articleId: string) => {
+    const [row] = await sql<{ v: string | null }[]>`
+      SELECT r.request->>'promptVersion' AS v FROM grouping_decisions d JOIN receipts r ON r.id = d.receipt_id WHERE d.article_id = ${articleId}`;
+    return row?.v ?? null;
+  };
+  assert.equal(await recordedVersion(news), batchPromptVersion("news"));
+  assert.equal(await recordedVersion(learning), batchPromptVersion("learning"));
+});
+
+test("the two tracks' grouping wording carries two versions, and the news one is pinned", async () => {
+  // Pinned on purpose: the news wording's content hash is what historical receipts and before/after
+  // comparisons name. Changing it is a deliberate act that has to move these two values.
+  assert.equal(batchPromptVersion("news"), "group-batch@1f64a25732");
+  assert.equal(relatePromptVersion("news"), "group-pair+group-signal@2bc2b8f53a");
+  assert.equal(BATCH_PROMPT_VERSION, batchPromptVersion("news"));
+  assert.equal(RELATE_PROMPT_VERSION, relatePromptVersion("news"));
+
+  // Two files, never one file with a {{track}} value in it: promptVersion hashes file contents only,
+  // so a parameterized wording would hand both tracks one version and a receipt could not tell which
+  // of the two wordings produced a result. The version names the file it read.
+  assert.ok(batchPromptVersion("learning").startsWith("group-batch-learning@"));
+  assert.ok(relatePromptVersion("learning").startsWith("group-pair-learning@"));
+  assert.notEqual(batchPromptVersion("learning"), batchPromptVersion("news"));
+  assert.notEqual(relatePromptVersion("learning"), relatePromptVersion("news"));
+  assert.notEqual(batchSystem("learning"), batchSystem("news"));
+  assert.notEqual(pairSystem("learning"), pairSystem("news"));
+
+  // A mirrored source has no judgement of its own and keeps the news wording.
+  assert.equal(batchPromptVersion("inherit"), batchPromptVersion("news"));
+  assert.equal(pairSystem("inherit"), pairSystem("news"));
 });

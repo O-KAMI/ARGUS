@@ -1,12 +1,15 @@
-// Feed filters: the channel and category choice (a row of tabs on desktop, a sheet behind the bar's filter
-// button on phones), the phone bar of 精选 and 全部, and search.
+// Feed filters: content type, technical direction and source (a row of three menus on desktop, a sheet
+// behind the bar's filter button on phones), the phone bar of 精选 and 全部, and search.
 import { useEffect, useRef, useState } from "react";
-import { Form, Link, useNavigation, useSearchParams } from "react-router";
-import { CATEGORY_KEYS, CATEGORY_LABELS, CHANNEL_LABELS, type CategoryKey, type ChannelKey } from "@aihot/contracts/taxonomy";
+import { Form, Link, useNavigate, useNavigation, useSearchParams } from "react-router";
+import {
+  CATEGORY_LABELS, CHANNEL_LABELS, FIELD_FILTERS, GENRE_FILTERS, PLATFORM_KEYS, PLATFORM_LABELS,
+} from "@aihot/contracts/taxonomy";
+import type { TimelineFilters } from "@aihot/contracts/site";
 import { SITE } from "@aihot/site";
-import { IconClose, IconFilter, IconSearch } from "../../components/icons";
+import { IconChevronDown, IconClose, IconFilter, IconSearch } from "../../components/icons";
 import { PillTabs } from "../../components/ui/Tabs";
-import { ChoiceTick, Sheet, sheetChoice } from "../../components/ui/Sheet";
+import { Sheet, ChoiceTick } from "../../components/ui/Sheet";
 import { Wordmark } from "@aihot/site/brand/Logo.tsx";
 import { BarButton, PhoneBar } from "../../components/shell/PhoneBar";
 import { openSearch } from "../search/SearchOverlay";
@@ -24,38 +27,91 @@ function hrefWith(base: string, params: URLSearchParams, patch: Record<string, s
   return s ? `${base}?${s}` : base;
 }
 
-/**
- * The feed's one filter (精选 and 全部动态 alike): none, 一手, or a category. One choice at a time: picking
- * 一手 clears the category and picking a category clears 一手. Older 资讯 / X links still filter; the
- * choice then shows as none.
- */
-function filterOptions(base: string, params: URLSearchParams, noneLabel: string) {
-  return [
-    { key: "all", label: noneLabel, to: hrefWith(base, params, { category: null, channel: null }) },
-    { key: "firstParty", label: CHANNEL_LABELS.firstParty, to: hrefWith(base, params, { category: null, channel: "firstParty" }) },
-    ...CATEGORY_KEYS.map((k) => ({ key: k, label: CATEGORY_LABELS[k], to: hrefWith(base, params, { category: k, channel: null }) })),
-  ];
+function isFiltered(f: TimelineFilters): boolean {
+  return f.channel !== "all" || !!f.category || !!f.tag || !!f.genre || !!f.field
+    || (!!f.platform && f.platform !== "all");
 }
 
-function filterKey(category: CategoryKey | null, channel: ChannelKey): string {
-  return channel === "firstParty" ? "firstParty" : (category ?? "all");
+/** The source menu is one choice: a platform, or the special 一手 quality filter. */
+function sourceValue(f: TimelineFilters): string {
+  return f.channel === "firstParty" ? "firstParty" : (f.platform ?? "all");
 }
 
-/** Desktop: the filter as a row of tabs beside the search field. */
-export function CategoryTabs({ base, category, channel = "all", layoutId, className = "" }: { base: string; category: CategoryKey | null; channel?: ChannelKey; layoutId: string; className?: string }) {
+function FilterSelect({ label, value, options, onChange }: {
+  label: string;
+  value: string;
+  options: Array<{ value: string; label: string }>;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <span className="relative inline-flex items-center">
+      <select
+        aria-label={label}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="h-9 cursor-pointer appearance-none rounded-full bg-well pl-3.5 pr-8 text-[13px] font-medium text-ink-3 ring-1 ring-inset ring-line-soft outline-none transition-colors hover:text-ink focus:ring-accent"
+      >
+        {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+      <IconChevronDown size={13} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-4" />
+    </span>
+  );
+}
+
+/** Desktop: content type, technical direction and source, each one choice. */
+export function FilterMenus({ base, filters, className = "" }: { base: string; filters: TimelineFilters; className?: string }) {
   const [params] = useSearchParams();
-  return <PillTabs items={filterOptions(base, params, "全部").map(o => ({ ...o, prefetchOnPress: true }))} active={filterKey(category, channel)} layoutId={layoutId} label="筛选" className={className} />;
+  const navigate = useNavigate();
+  const go = (patch: Record<string, string | null>) => navigate(hrefWith(base, params, patch), { preventScrollReset: true });
+  return (
+    <div className={`flex flex-wrap items-center gap-2 ${className}`}>
+      <FilterSelect
+        label="内容类型"
+        value={filters.genre ?? "all"}
+        options={[{ value: "all", label: "内容类型 · 全部" }, ...GENRE_FILTERS.map((f) => ({ value: f.tag, label: f.label }))]}
+        onChange={(v) => go({ genre: v === "all" ? null : v })}
+      />
+      <FilterSelect
+        label="技术方向"
+        value={filters.field ?? "all"}
+        options={[{ value: "all", label: "技术方向 · 全部" }, ...FIELD_FILTERS.map((f) => ({ value: f.tag, label: f.label }))]}
+        onChange={(v) => go({ field: v === "all" ? null : v })}
+      />
+      <FilterSelect
+        label="来源"
+        value={sourceValue(filters)}
+        options={[
+          { value: "all", label: "来源 · 全部" },
+          ...PLATFORM_KEYS.filter((k) => k !== "all").map((k) => ({ value: k, label: PLATFORM_LABELS[k] })),
+          { value: "firstParty", label: "一手（官方）" },
+        ]}
+        onChange={(v) => {
+          if (v === "firstParty") go({ channel: "firstParty", platform: null });
+          else go({ channel: null, platform: v === "all" ? null : v });
+        }}
+      />
+      {isFiltered(filters) && (
+        <button
+          type="button"
+          onClick={() => go({ category: null, channel: null, tag: null, genre: null, field: null, platform: null })}
+          className="h-9 rounded-full px-2.5 text-[12.5px] text-ink-4 transition-colors hover:text-accent"
+        >
+          重置
+        </button>
+      )}
+    </div>
+  );
 }
 
 /**
  * The phone bar of 精选 and 全部: the brand, the 精选 | 全部 switch (a filter in use carries over), and
  * buttons for the filter sheet and search.
  */
-export function FeedBar({ base, category, channel }: { base: "/" | "/all"; category: CategoryKey | null; channel: ChannelKey }) {
+export function FeedBar({ base, filters }: { base: "/" | "/all"; filters: TimelineFilters }) {
   const [params] = useSearchParams();
   const [sheet, setSheet] = useState(false);
   const scope = (to: string) => hrefWith(to, params, { q: null, tab: null, search: null });
-  const filtered = filterKey(category, channel) !== "all";
+  const filtered = isFiltered(filters);
   return (
     <>
       <PhoneBar
@@ -86,58 +142,122 @@ export function FeedBar({ base, category, channel }: { base: "/" | "/all"; categ
           </>
         }
       />
-      <FilterSheet open={sheet} onClose={() => setSheet(false)} base={base} active={filterKey(category, channel)} />
+      <FilterSheet open={sheet} onClose={() => setSheet(false)} base={base} filters={filters} />
     </>
   );
 }
 
-/** Phones: the filter as a sheet of options, the one in use ticked; choosing one applies it. */
-function FilterSheet({ open, onClose, base, active }: { open: boolean; onClose: () => void; base: string; active: string }) {
-  const [params] = useSearchParams();
+/** One group of choices in the phone sheet. */
+function SheetGroup({ title, options, active, onPick }: {
+  title: string;
+  options: Array<{ value: string; label: string }>;
+  active: string;
+  onPick: (value: string) => void;
+}) {
   return (
-    <Sheet open={open} onClose={onClose} title="筛选">
-      <ul className="mx-4 divide-y divide-line-soft">
-        {filterOptions(base, params, "不限").map((o) => {
-          const on = o.key === active;
+    <section className="mx-4 border-t border-line-soft py-3 first:border-t-0">
+      <h3 className="mb-2 text-[12.5px] font-semibold text-ink-4">{title}</h3>
+      <div className="flex flex-wrap gap-2">
+        {options.map((o) => {
+          const on = o.value === active;
           return (
-            <li key={o.key}>
-              <Link
-                to={o.to}
-                onClick={onClose}
-                aria-current={on ? "true" : undefined}
-                className={`-mx-2 rounded-tile px-2 ${sheetChoice(on)}`}
-              >
-                {o.label}
-                {on && <ChoiceTick />}
-              </Link>
-            </li>
+            <Link
+              key={o.value}
+              to="#"
+              onClick={(event) => {
+                event.preventDefault();
+                onPick(o.value);
+              }}
+              aria-current={on ? "true" : undefined}
+              className={`inline-flex min-h-9 items-center gap-1 rounded-full px-3 text-[13px] ring-1 ring-inset transition-colors active:opacity-60 ${
+                on ? "bg-accent-soft font-semibold text-accent ring-accent/20" : "bg-well text-ink-2 ring-line-soft"
+              }`}
+            >
+              {o.label}
+              {on && <ChoiceTick />}
+            </Link>
           );
         })}
-      </ul>
+      </div>
+    </section>
+  );
+}
+
+/** Phones: the three filters as one scrollable sheet; choosing one applies it and closes. */
+function FilterSheet({ open, onClose, base, filters }: { open: boolean; onClose: () => void; base: string; filters: TimelineFilters }) {
+  const [params] = useSearchParams();
+  const navigate = useNavigate();
+  const pick = (patch: Record<string, string | null>) => {
+    onClose();
+    navigate(hrefWith(base, params, patch), { preventScrollReset: true });
+  };
+  return (
+    <Sheet open={open} onClose={onClose} title="筛选">
+      <SheetGroup
+        title="内容类型"
+        active={filters.genre ?? "all"}
+        options={[{ value: "all", label: "不限" }, ...GENRE_FILTERS.map((f) => ({ value: f.tag, label: f.label }))]}
+        onPick={(v) => pick({ genre: v === "all" ? null : v })}
+      />
+      <SheetGroup
+        title="技术方向"
+        active={filters.field ?? "all"}
+        options={[{ value: "all", label: "不限" }, ...FIELD_FILTERS.map((f) => ({ value: f.tag, label: f.label }))]}
+        onPick={(v) => pick({ field: v === "all" ? null : v })}
+      />
+      <SheetGroup
+        title="来源"
+        active={sourceValue(filters)}
+        options={[
+          { value: "all", label: "不限" },
+          ...PLATFORM_KEYS.filter((k) => k !== "all").map((k) => ({ value: k, label: PLATFORM_LABELS[k] })),
+          { value: "firstParty", label: "一手（官方）" },
+        ]}
+        onPick={(v) => {
+          if (v === "firstParty") pick({ channel: "firstParty", platform: null });
+          else pick({ channel: null, platform: v === "all" ? null : v });
+        }}
+      />
+      {isFiltered(filters) && (
+        <div className="mx-4 pb-2 pt-1">
+          <button
+            type="button"
+            onClick={() => pick({ category: null, channel: null, tag: null, genre: null, field: null, platform: null })}
+            className="h-11 w-full rounded-full bg-bg-sunk text-[13px] font-medium text-ink-3 transition-colors active:opacity-60"
+          >
+            清除全部筛选
+          </button>
+        </div>
+      )}
     </Sheet>
   );
 }
 
-/** Phones: the filter and tag in use as chips under the bar; each one clears itself when tapped. */
-export function ActiveFilters({ base, category, channel, tag }: { base: string; category: CategoryKey | null; channel: ChannelKey; tag: string | null }) {
+/** Phones: the filters and tag in use as chips under the bar; each one clears itself when tapped. */
+export function ActiveFilters({ base, filters }: { base: string; filters: TimelineFilters }) {
   const [params] = useSearchParams();
-  const label = channel === "firstParty" ? CHANNEL_LABELS.firstParty : category ? CATEGORY_LABELS[category] : null;
-  if (!label && !tag) return null;
   const chip = "inline-flex min-h-11 max-w-full items-center gap-1 rounded-full bg-accent-soft pl-3 pr-2 text-[13px] font-medium text-accent transition-opacity active:opacity-60";
+  const genre = GENRE_FILTERS.find((f) => f.tag === filters.genre)?.label;
+  const field = FIELD_FILTERS.find((f) => f.tag === filters.field)?.label;
+  const platform = filters.platform && filters.platform !== "all" ? PLATFORM_LABELS[filters.platform] : null;
+  const category = filters.category ? CATEGORY_LABELS[filters.category] : null;
+  const channel = filters.channel === "firstParty" ? CHANNEL_LABELS.firstParty : null;
+  const chips = [
+    { key: "genre", label: genre, patch: { genre: null } as Record<string, string | null> },
+    { key: "field", label: field, patch: { field: null } as Record<string, string | null> },
+    { key: "source", label: platform ?? channel, patch: (channel ? { channel: null } : { platform: null }) as Record<string, string | null> },
+    { key: "category", label: category, patch: { category: null } as Record<string, string | null> },
+    { key: "tag", label: filters.tag ? `#${filters.tag}` : null, patch: { tag: null } as Record<string, string | null> },
+  ].filter((c) => !!c.label);
+  if (chips.length === 0) return null;
   return (
     <div className="flex flex-wrap gap-2 pb-3 pt-1 lg:hidden">
-      {label && (
-        <Link to={hrefWith(base, params, { category: null, channel: null })} aria-label={`取消筛选：${label}`} className={chip}>
-          只看{label}
-          <IconClose size={14} strokeWidth={2} />
-        </Link>
-      )}
-      {tag && (
-        <Link to={hrefWith(base, params, { tag: null })} aria-label={`取消标签：${tag}`} className={chip}>
-          <span className="truncate">#{tag}</span>
+      {chips.map((c) => (
+        <Link key={c.key} to={hrefWith(base, params, c.patch)} aria-label={`取消筛选：${c.label}`} className={chip}>
+          <span className="truncate">{c.label}</span>
           <IconClose size={14} strokeWidth={2} className="shrink-0" />
         </Link>
-      )}
+      ))}
     </div>
   );
 }

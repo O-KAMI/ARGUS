@@ -16,7 +16,7 @@ process.env.MODEL_CALLS_ENABLED = "false";
 const { produceImage } = await import("@aihot/backend/media/images");
 const { renderOg } = await import("@aihot/backend/media/og");
 const { renderPoster } = await import("@aihot/backend/media/poster");
-const { xView } = await import("@aihot/backend/publication/items");
+const { toFeedItemSummary, xView } = await import("@aihot/backend/publication/items");
 
 let imageHits = 0;
 let failureHits = 0;
@@ -161,6 +161,28 @@ test("site media exposes responsive previews and full lightboxes while RSS retai
   const single = xView(row, true)!.media;
   assert.equal(single.length, 1);
   assert.ok(single[0]!.url.includes("mode=thumb"));
+});
+
+test("feed cards project the first valid article cover and null without media", () => {
+  const at = new Date("2026-10-04T08:00:00Z");
+  const row = {
+    id: "cover", title: "封面", original_title: null, summary: "摘要", reason: null,
+    category: null, tags: [], score: null, selected: false, channel: "news", body_mode: "full",
+    url: "https://example.org/story", published_at: null, discovered_at: at, timeline_at: at,
+    seat: false, visibility: "public", indexable: true, fact_id: null,
+    source_name: "Fixture", source_mode: "editorial", x_post: null,
+    author: null, language: null, story_public_id: null, story_title: null, zh_text: null, quoted_zh: null,
+    media: [
+      { kind: "image", url: "javascript:invalid" },
+      { kind: "image", url: "https://example.org/cover.png", width: 1200, height: 630, alt: "真实封面" },
+    ],
+  } as Parameters<typeof toFeedItemSummary>[0];
+  const cover = toFeedItemSummary(row).cover!;
+  assert.equal(new URL(cover.url, "http://localhost").searchParams.get("u"), "https://example.org/cover.png");
+  assert.ok(cover.url.includes("mode=card") && cover.fullUrl?.includes("mode=full"));
+  assert.ok(cover.srcSet?.includes("mode=card"));
+  assert.equal(cover.alt, "真实封面");
+  assert.equal(toFeedItemSummary({ ...row, media: [] }).cover, null);
 });
 
 test("concurrent cold OG and poster requests all succeed with identical cached bytes", async () => {

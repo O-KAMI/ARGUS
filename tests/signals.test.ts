@@ -18,9 +18,10 @@ const SIGNAL = `test-sig-hs-${T}`;
 const TOPIC = `WL${T}`;
 /** Text of its own: close to nothing stored. */
 const ALONE = `ZZ${T}`;
+let relation: "SAME_OCCURRENCE" | "UNRELATED" = "SAME_OCCURRENCE";
 
 // Embeddings: texts about the topic point one way, everything else another. The judge calls the first
-// candidate the same occurrence.
+// candidate the same occurrence unless the fixture is checking the unrelated decision.
 const provider = await stub((_hit, req) => {
   const body = JSON.parse(req.body) as { input?: string[]; messages?: Array<{ content: string }> };
   if (body.input) {
@@ -28,7 +29,8 @@ const provider = await stub((_hit, req) => {
     const axis = 2 + (parseInt(T.slice(-4), 36) % 1000);
     return { data: body.input.map((text, index) => ({ index, embedding: Array.from({ length: 1024 }, (_v, i) => (i === (text.includes(TOPIC) ? axis : text.includes(ALONE) ? axis + 1 : 1) ? 1 : 0)) })) };
   }
-  const answer = { query: "收购", decisions: [{ id: "C1", relation: "SAME_OCCURRENCE", confidence: 0.95, note: "" }], selection: { addsValue: true, reason: "fixture news" } };
+  const ids = [...(body.messages?.[1]?.content ?? "").matchAll(/【候选 (C\d+)】/g)].map((match) => match[1]!);
+  const answer = { query: "收购", decisions: ids.map((id) => ({ id, relation, confidence: 0.95, note: "" })), selection: { addsValue: true, reason: "fixture news" } };
   return { id: "stub", choices: [{ message: { content: JSON.stringify(answer) } }], usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 } };
 });
 for (const name of ["DASHSCOPE_BASE_URL", "DEEPSEEK_BASE_URL"]) process.env[name] = `${provider.url}/v1`;
@@ -40,13 +42,13 @@ async function job(articleId: string) {
   return j ?? null;
 }
 
-async function report(suffix: string, opts: { title: string; backfill?: string; publishedAt?: Date }) {
+async function report(suffix: string, opts: { title: string; summary?: string; backfill?: string; publishedAt?: Date }) {
   const { articleId } = await upsertMaterial({
     sourceId: EDITORIAL, url: `https://example.com/sig-${T}-${suffix}`, title: opts.title, bodyText: "Body.", bodyStatus: "ok", via: "fetch",
     publishedAt: opts.publishedAt ?? new Date(), backfill: opts.backfill ?? null,
   });
   await sql`INSERT INTO analyses (article_id, input_revision, origin, relevance, category, title_zh, summary_zh, score, selected, output)
-            VALUES (${articleId}, 1, 'rule', 'pass', 'ai-models', ${opts.title}, '摘要', 80, false, ${sql.json({ fact: { title: opts.title } })})`;
+            VALUES (${articleId}, 1, 'rule', 'pass', 'ai-models', ${opts.title}, ${opts.summary ?? "摘要"}, 80, false, ${sql.json({ fact: { title: opts.title } })})`;
   await publishArticle(articleId);
   return articleId;
 }
@@ -84,6 +86,57 @@ test("a discussion post that came before any report is grouped again when a repo
   const again = await groupArticle(postId, { signalOnly: true });
   assert.equal(again.verdict, "signal");
   assert.equal(again.storyId, founded.storyId);
+});
+
+test("without embeddings a post rematches lexically, while unrelated and standalone posts stay out", async () => {
+  const keys = ["DASHSCOPE_API_KEY", "EMBEDDING_API_KEY"] as const;
+  const saved = keys.map((key) => [key, process.env[key]] as const);
+  for (const key of keys) delete process.env[key];
+  const topic = "LXQZKJVXNR";
+  const body = "Developers discuss the acquisition and release timeline.";
+  try {
+    const { articleId: postId } = await upsertMaterial({
+      sourceId: SIGNAL, url: `https://example.com/sig-${T}-lexical-post`, title: `Quantum vendor launches ${topic}`, bodyText: body, bodyStatus: "ok", via: "fetch", publishedAt: new Date(),
+    });
+    await settleNonEditorial(postId);
+    assert.equal((await groupArticle(postId, { signalOnly: true })).verdict, "signal-unmatched");
+
+    const { articleId: standaloneId } = await upsertMaterial({
+      sourceId: SIGNAL, url: `https://example.com/sig-${T}-lexical-standalone`, title: `Quantum vendor launches ${topic}`, bodyText: body, bodyStatus: "ok", via: "fetch", publishedAt: new Date(),
+    });
+    await settleNonEditorial(standaloneId);
+    await sql`INSERT INTO grouping_overrides (article_id, reason, actor) VALUES (${standaloneId}, 'Keep this discussion standalone', 'test')`;
+    assert.equal((await groupArticle(standaloneId, { signalOnly: true })).verdict, "manual");
+
+    const founded = await groupArticle(await report("lexical-first", {
+      title: `Quantum vendor launches ${topic}`, summary: "The editorial report covers pricing, availability and technical details.",
+    }));
+    assert.equal(founded.verdict, "new-story");
+    assert.equal(founded.rematched, 1, "the manual standalone post is not rematched");
+
+    const hits = provider.hits();
+    const again = await groupArticle(postId, { signalOnly: true });
+    assert.equal(again.verdict, "signal");
+    assert.equal(again.storyId, founded.storyId);
+    assert.equal(provider.hits(), hits + 1, "lexical recall still requires the discussion judge below the auto-attach bar");
+
+    const { articleId: unrelatedId } = await upsertMaterial({
+      sourceId: SIGNAL, url: `https://example.com/sig-${T}-lexical-unrelated`, title: `Quantum vendor launches ${topic} reaction`, bodyText: `${body} ${ALONE}`, bodyStatus: "ok", via: "fetch", publishedAt: new Date(),
+    });
+    await settleNonEditorial(unrelatedId);
+    relation = "UNRELATED";
+    const unrelatedHits = provider.hits();
+    assert.equal((await groupArticle(unrelatedId, { signalOnly: true })).verdict, "signal-unmatched");
+    assert.equal(provider.hits(), unrelatedHits + 1, "a lexical candidate is still reviewed");
+    assert.equal((await sql`SELECT 1 FROM story_signals WHERE article_id = ${unrelatedId}`).length, 0);
+    assert.equal((await sql`SELECT 1 FROM story_signals WHERE article_id = ${standaloneId}`).length, 0);
+  } finally {
+    relation = "SAME_OCCURRENCE";
+    for (const [key, value] of saved) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
 });
 
 test("history waits behind live work and founds no event; a new source's post from today is news", async () => {

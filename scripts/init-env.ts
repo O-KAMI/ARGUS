@@ -8,9 +8,12 @@ if (existsSync(".env")) {
   process.exit(1);
 }
 const password = randomBytes(12).toString("base64url");
+const internalToken = randomBytes(32).toString("hex");
 const keyAt = process.argv.indexOf("--llm-key");
 const llmKey = keyAt > 0 ? (process.argv[keyAt + 1] ?? "") : "";
 const text = readFileSync(".env.example", "utf8")
+  .replace(/^INTERNAL_TOKEN=$/m, `INTERNAL_TOKEN=${internalToken}`)
+  .replace(/^PRIVATE_ACCESS=.*$/m, "PRIVATE_ACCESS=true")
   .replace(/^ADMIN_PASSWORD=$/m, `ADMIN_PASSWORD=${password}`)
   .replace(/^SESSION_SECRET=$/m, `SESSION_SECRET=${randomBytes(32).toString("hex")}`)
   .replace(/^IMG_PROXY_SIGN_SECRET=$/m, `IMG_PROXY_SIGN_SECRET=${randomBytes(32).toString("hex")}`)

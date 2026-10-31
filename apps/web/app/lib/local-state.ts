@@ -490,6 +490,30 @@ export function useReadSet(): Set<string> {
   return useSyncExternalStore(subscribeRead, getReadSet, () => EMPTY_SET);
 }
 
+// The timeline's 只看未读 reaches the home's selected grid as well: while it is on, the grid steps aside
+// and the working list carries every unread card. The flag lives in the list's own saved state; this
+// mirror lets the grid read it without props across the two components.
+let unreadOnly = false;
+const unreadListeners = new Set<() => void>();
+
+/** Called by the timeline whenever its saved filter changes, including a restore from history. */
+export function syncUnreadOnly(on: boolean) {
+  if (unreadOnly === on) return;
+  unreadOnly = on;
+  for (const listener of unreadListeners) listener();
+}
+
+export function useUnreadOnly(): boolean {
+  return useSyncExternalStore(
+    (listener) => {
+      unreadListeners.add(listener);
+      return () => unreadListeners.delete(listener);
+    },
+    () => unreadOnly,
+    () => false,
+  );
+}
+
 export function useThemePreference(): ThemePreference {
   return useSyncExternalStore(subscribeTheme, getThemePreference, () => null);
 }

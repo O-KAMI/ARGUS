@@ -7,6 +7,7 @@ import { sql } from "../db.ts";
 import { audit } from "../audit.ts";
 import { requestRepublish } from "../jobs/publication.ts";
 import { getTweet, privateAccountRefusal } from "../providers/socialdata.ts";
+import { fetchFxStatus } from "../providers/fxtwitter.ts";
 import { collectSource } from "./collect.ts";
 import { X_HANDLE, xHandle } from "./account.ts";
 
@@ -24,8 +25,8 @@ export interface XRename {
 export async function followXRenames(opts: { now?: number; pauseMs?: number } = {}): Promise<{ checked: number; renamed: XRename[]; privateAccounts: string[] }> {
   const now = opts.now ?? Date.now();
   const window = new Date(now).toISOString().slice(0, 10);
-  const quiet = await sql<{ id: string; name: string; query: string; tweet_ids: string[] }[]>`
-    SELECT s.id, s.name, s.config->>'query' AS query, a.tweet_ids
+  const quiet = await sql<{ id: string; name: string; query: string; provider: string | null; tweet_ids: string[] }[]>`
+    SELECT s.id, s.name, s.config->>'query' AS query, s.config->>'provider' AS provider, a.tweet_ids
     FROM sources s CROSS JOIN LATERAL (
       SELECT array_agg(tweet_id ORDER BY discovered_at DESC, published_at DESC NULLS LAST) AS tweet_ids, max(discovered_at) AS discovered_at FROM (
         SELECT x_post->>'tweetId' AS tweet_id, discovered_at, published_at FROM articles WHERE source_id = s.id AND x_post ? 'tweetId'
@@ -41,6 +42,15 @@ export async function followXRenames(opts: { now?: number; pauseMs?: number } = 
     let to: string | undefined;
     for (const tweetId of s.tweet_ids) {
       if (lookups++ > 0) await pause();
+      // The free FxTwitter status carries the author's current handle; the paid lookup is the fallback.
+      if (s.provider === "fxtwitter") {
+        try {
+          to = (await fetchFxStatus(tweetId)).author?.screen_name;
+        } catch {
+          // Fall through to SocialData.
+        }
+        if (to) break;
+      }
       try {
         to = (await getTweet(tweetId, { purpose: "x_rename_check", subject: `source:${s.id}`, window }))?.user.screen_name;
       } catch (error) {

@@ -6,6 +6,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { WorkOptions } from "pg-boss";
 import type { z } from "zod";
 import type { Brand } from "@aihot/contracts/site";
+import type { PlatformKey } from "@aihot/contracts/taxonomy";
 import type { Db } from "./db.ts";
 import type { QueueOptions } from "./jobs/queue.ts";
 import type { Finding } from "./notify/feishu.ts";
@@ -184,6 +185,11 @@ export interface ServerModule {
   name: string;
   /** Sources whose selected articles keep independent cards/seats without changing admission or event identity (publication/rules.ts, scope.ts). */
   independentSelectedSources?: readonly string[];
+  /**
+   * The platform its sources' reports came from, by source id (publication/rules.ts, platformOf). A mirror's
+   * reports carry their upstream's own addresses, so no host rule and no account kind of theirs can name it.
+   */
+  platforms?: Partial<Record<Exclude<PlatformKey, "all">, readonly string[]>>;
   /** Its HTTP routes, and hooks on the app such as what to flush when it closes, registered before the engine's v1 fallbacks (apps/api/src/app.ts). */
   http?: (app: FastifyInstance) => void;
   agent?: {

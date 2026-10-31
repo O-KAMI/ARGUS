@@ -14,7 +14,7 @@ import { EmptyState } from "../../components/ui/Page";
 import { beijingDate, beijingTime, beijingWeekday, monthDay } from "@aihot/contracts/time";
 import { byBeijingDay, weekdayShort } from "../../lib/format";
 import { isHydrated } from "../../lib/hydration";
-import { markRead, useReadSet } from "../../lib/local-state";
+import { markRead, syncUnreadOnly, useReadSet } from "../../lib/local-state";
 import { filterParams, listPath } from "../../lib/seo";
 import { isReload, readSnapshot, restoreAnchor, saveSnapshot, useSaveOnLeave } from "../../lib/restore";
 
@@ -131,7 +131,7 @@ export function TimelineSlot({ at, children, fresh = false, delay = 0, dataKey }
   );
 }
 
-export function Timeline({ initial, filters }: { initial: TimelineResponse; filters: TimelineFilters }) {
+export function Timeline({ initial, filters, featuredKeys }: { initial: TimelineResponse; filters: TimelineFilters; featuredKeys?: ReadonlySet<string> }) {
   const location = useLocation();
   const navigation = useNavigation();
   const readSet = useReadSet();
@@ -272,6 +272,11 @@ export function Timeline({ initial, filters }: { initial: TimelineResponse; filt
 
   const today = beijingDate(Date.now());
   const unreadOnly = state.unreadOnly;
+
+  // The home's selected grid steps aside while the unread filter is on (local-state mirror).
+  useEffect(() => {
+    syncUnreadOnly(unreadOnly);
+  }, [unreadOnly]);
   // 只看未读 hides cards read in this browser: an ordinary card by its own id, a reading group by any
   // of its selected reports, so a read representative does not hide the unread reports behind it.
   // A group kept that way is not drawn as read; its expansion marks which reports are unread.
@@ -279,10 +284,10 @@ export function Timeline({ initial, filters }: { initial: TimelineResponse; filt
     (card: TimelineCard) => !readSet.has(card.item.id) || (card.group?.memberIds?.some((id) => !readSet.has(id)) ?? false),
     [readSet],
   );
-  const days = useMemo(
-    () => byBeijingDay(unreadOnly ? state.cards.filter(unreadVisible) : state.cards, (c) => c.anchorAt),
-    [state.cards, unreadOnly, unreadVisible],
-  );
+  const days = useMemo(() => {
+    const cards = featuredKeys?.size ? state.cards.filter((card) => !featuredKeys.has(card.key)) : state.cards;
+    return byBeijingDay(unreadOnly ? cards.filter(unreadVisible) : cards, (c) => c.anchorAt);
+  }, [state.cards, unreadOnly, unreadVisible, featuredKeys]);
 
   const visibleCount = useMemo(() => days.reduce((n, d) => n + d.entries.length, 0), [days]);
   // With the filter on, a page whose cards are all read would show nothing: keep paging until
@@ -317,7 +322,7 @@ export function Timeline({ initial, filters }: { initial: TimelineResponse; filt
               <EmptyState title="没有未读的精选内容">关掉「只看未读」可以看到全部内容。</EmptyState>
             )
           ) : (
-            <EmptyState title="这个筛选下还没有精选内容">换个类别看看，或者去全部动态里找找。</EmptyState>
+            <EmptyState title="这个筛选下还没有精选内容">换个类别看看，或者去「全部情报」里找找。</EmptyState>
           )}
         </div>
       )}

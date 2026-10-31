@@ -9,6 +9,7 @@ import { listAudit } from "@aihot/backend/audit";
 import { importSelectBenchRun, listSelectBenchRuns, selectBenchRun } from "@aihot/backend/admin/selectbench";
 import { modelsOverview, switchModel } from "@aihot/backend/admin/models";
 import { contentChain, overrideFields, rerun, searchContent, setSeoIndexed, setVisibility } from "@aihot/backend/admin/content";
+import { labelSelection, listLabeling } from "@aihot/backend/admin/labeling";
 import { detachFromFact, mergeStories } from "@aihot/backend/events/corrections";
 import { banFeedbackEmail, banSource, eraseFeedback, feedbackScreenshot, listFeedback, unbanSource, updateFeedback } from "@aihot/backend/admin/feedback";
 import { requeueFailedArticles, runsOverview } from "@aihot/backend/admin/runs";
@@ -125,6 +126,10 @@ export function registerAdmin(app: FastifyInstance) {
     const b = body<{ label: string; report: unknown }>(req);
     return importSelectBenchRun(b.report, String(b.label || "导入的对比运行"), actorOf(admin));
   }));
+
+  // Selection labelling: the human decisions SelectBench is calibrated against
+  app.get("/api/admin/labeling", adminHandler(async (req) => listLabeling({ state: q(req).state, page: page(req) })));
+  app.post("/api/admin/labeling/:id", adminHandler(async (req, _reply, admin) => labelSelection(param(req, "id"), body(req), actorOf(admin))));
 
   // Attention counts for the navigation, and the audit trail.
   app.get("/api/admin/nav-counts", adminHandler(async () => navCounts()));

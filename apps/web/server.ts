@@ -2,14 +2,15 @@
 // proxied to the api process, so one port serves the whole site; a reverse proxy in front may also send
 // them to the api directly.
 import { createReadStream } from "node:fs";
-import { stat } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { createServer } from "node:http";
 import path from "node:path";
+import { createGzip, gzipSync } from "node:zlib";
 import { pathToFileURL } from "node:url";
 import { createRequestListener } from "@react-router/node";
 import type { ServerBuild } from "react-router";
 import { isApiOwned, resolveRedirect } from "@aihot/contracts/http-policy";
-import { BROWSER_MAX_SECONDS } from "./app/lib/api.server.ts";
+import { API_BASE_URL, BROWSER_MAX_SECONDS } from "./app/lib/api.server.ts";
 import { proxyToApi } from "./app/lib/api-proxy.server.ts";
 import { logError } from "./app/lib/errors.server.ts";
 
@@ -21,6 +22,31 @@ const HOST = process.env.WEB_HOST || "127.0.0.1";
  * limits (sign-in attempts, feedback).
  */
 const TRUST_PROXY = process.env.TRUST_PROXY === "true";
+/** ARGUS is private by default: every reader document needs a signed-in session when this is on. */
+const PRIVATE_ACCESS = (process.env.PRIVATE_ACCESS || "true") === "true";
+if (PRIVATE_ACCESS && (process.env.INTERNAL_TOKEN || "").length < 32) {
+  throw new Error("PRIVATE_ACCESS requires INTERNAL_TOKEN (at least 32 characters) shared by the web and api processes");
+}
+/** Sign-in, health and the build assets stay reachable; everything else is checked against the api. */
+const PRIVATE_ALLOW = [
+  /^\/admin\/login(?:\/|$)/,
+  /^\/assets\//,
+  /^\/(?:favicon\.ico|favicon\.svg|icon\.png|icon-192\.png|apple-icon\.png|manifest\.webmanifest|robots\.txt)$/,
+  /^\/api\/auth\//,
+  /^\/api\/health$/,
+];
+async function readerSignedIn(req: import("node:http").IncomingMessage): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/auth/check`, {
+      headers: { cookie: String(req.headers.cookie ?? "") },
+      signal: AbortSignal.timeout(8_000),
+    });
+    return res.status === 204;
+  } catch {
+    // The api being unreachable must not turn a login wall into a public site.
+    return false;
+  }
+}
 const CLIENT_DIR = path.resolve(import.meta.dirname, "build/client");
 
 const TYPES: Record<string, string> = {
@@ -51,6 +77,55 @@ const ssr = createRequestListener({ build: { ...build, routes }, mode: "producti
 
 class BadRequest extends Error {}
 
+/** Text-like bodies worth compressing; paintings, photos and fonts arrive compressed already. */
+const COMPRESSIBLE = ["text/", "application/json", "application/javascript", "application/manifest+json", "image/svg+xml"];
+const gzipCache = new Map<string, Buffer>();
+const wantsGzip = (req: import("node:http").IncomingMessage) => String(req.headers["accept-encoding"] ?? "").includes("gzip");
+
+/**
+ * Gzips a streamed page once its headers name a compressible type: the document and the single-fetch
+ * data are the heaviest answers this process gives, and readers' networks are the slowest link. The
+ * decision has to be made in writeHead, since a header set after the flush aborts the response; the
+ * gzip buffer then stands in for socket backpressure, which a page of a few hundred KB does not need.
+ */
+function withGzip(req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse) {
+  if (req.method === "HEAD" || !wantsGzip(req)) return;
+  const rawWrite = res.write.bind(res) as (...args: never[]) => boolean;
+  const rawEnd = res.end.bind(res) as (...args: never[]) => void;
+  const rawHead = res.writeHead.bind(res) as (...args: never[]) => void;
+  let gzip: import("node:zlib").Gzip | null = null;
+  res.writeHead = ((status: number, ...rest: unknown[]) => {
+    const type = String(res.getHeader("Content-Type") ?? "");
+    if (status === 200 && COMPRESSIBLE.some((t) => type.startsWith(t))) {
+      gzip = createGzip({ level: 6 });
+      gzip.on("data", (chunk: Buffer) => rawWrite(chunk as never));
+      gzip.on("end", () => rawEnd());
+      res.setHeader("Content-Encoding", "gzip");
+      res.setHeader("Vary", "Accept-Encoding");
+      res.removeHeader("Content-Length");
+    }
+    return rawHead(status as never, ...(rest as never[]));
+  }) as typeof res.writeHead;
+  res.write = ((chunk: unknown, ...rest: unknown[]) => {
+    if (gzip) {
+      gzip.write(chunk as never);
+      return true;
+    }
+    return rawWrite(chunk as never, ...(rest as never[]));
+  }) as typeof res.write;
+  res.end = ((chunk?: unknown, ...rest: unknown[]) => {
+    if (!gzip) {
+      rawEnd(chunk as never, ...(rest as never[]));
+      return res;
+    }
+    if (chunk !== undefined && chunk !== null) gzip.write(chunk as never);
+    const callback = rest.find((arg) => typeof arg === "function");
+    if (callback) gzip.once("end", callback as () => void);
+    gzip.end();
+    return res;
+  }) as typeof res.end;
+}
+
 /** Hashed build assets are immutable; anything else from the client build gets a short cache. */
 async function serveStatic(pathname: string, res: import("node:http").ServerResponse): Promise<boolean> {
   if (pathname.includes("..") || pathname.endsWith("/")) return false;
@@ -65,12 +140,48 @@ async function serveStatic(pathname: string, res: import("node:http").ServerResp
   const info = await stat(file).catch(() => null);
   if (!info?.isFile()) return false;
   const immutable = pathname.startsWith("/assets/");
+  const type = TYPES[path.extname(file)] ?? "application/octet-stream";
+  const cached = immutable ? gzipCache.get(pathname) : undefined;
+  if (cached && wantsGzip(res.req)) {
+    res.writeHead(200, {
+      "Content-Type": type,
+      "Content-Encoding": "gzip",
+      Vary: "Accept-Encoding",
+      "Content-Length": cached.length,
+      "Cache-Control": "public, max-age=31536000, immutable",
+      "X-Content-Type-Options": "nosniff",
+    });
+    res.end(res.req.method === "HEAD" ? undefined : cached);
+    return true;
+  }
+  const body = immutable && COMPRESSIBLE.some((t) => type.startsWith(t)) ? await readFile(file) : null;
+  if (body) {
+    const gz = gzipSync(body, { level: 9 });
+    if (gzipCache.size < 300) gzipCache.set(pathname, gz);
+    if (wantsGzip(res.req)) {
+      res.writeHead(200, {
+        "Content-Type": type,
+        "Content-Encoding": "gzip",
+        Vary: "Accept-Encoding",
+        "Content-Length": gz.length,
+        "Cache-Control": "public, max-age=31536000, immutable",
+        "X-Content-Type-Options": "nosniff",
+      });
+      res.end(res.req.method === "HEAD" ? undefined : gz);
+      return true;
+    }
+  }
   res.writeHead(200, {
-    "Content-Type": TYPES[path.extname(file)] ?? "application/octet-stream",
+    "Content-Type": type,
+    Vary: "Accept-Encoding",
     "Content-Length": info.size,
     "Cache-Control": immutable ? "public, max-age=31536000, immutable" : "public, max-age=3600",
     "X-Content-Type-Options": "nosniff",
   });
+  if (res.req.method === "HEAD") {
+    res.end();
+    return true;
+  }
   createReadStream(file).pipe(res);
   return true;
 }
@@ -113,7 +224,7 @@ function pageResponse(req: import("node:http").IncomingMessage, res: import("nod
       res.setHeader("Content-Type", "text/plain; charset=utf-8");
     }
     const cc = String(res.getHeader("Cache-Control") ?? "");
-    if (!publicRead || status !== 200 || res.hasHeader("Set-Cookie") || !cc || /(?:private|no-store)/i.test(cc)) {
+    if (PRIVATE_ACCESS || !publicRead || status !== 200 || res.hasHeader("Set-Cookie") || !cc || /(?:private|no-store)/i.test(cc)) {
       res.removeHeader("Expires");
       res.setHeader("Cache-Control", "private, no-store");
       res.setHeader("X-Accel-Expires", "0");
@@ -151,6 +262,23 @@ async function handle(req: import("node:http").IncomingMessage, res: import("nod
     return res.end(decision.location ? undefined : decision.status === 410 ? "Gone" : "Not found");
   }
 
+  if (PRIVATE_ACCESS && !PRIVATE_ALLOW.some((pattern) => pattern.test(pathname))) {
+    if (!(await readerSignedIn(req))) {
+      if (pathname.endsWith(".data")) {
+        res.writeHead(401, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "private, no-store" });
+        return res.end("Sign in");
+      }
+      const target = `${pathname}${search}`;
+      res.writeHead(302, {
+        Location: `/admin/login?${new URLSearchParams({ return: target })}`,
+        "Cache-Control": "private, no-store",
+        "X-Robots-Tag": "noindex, nofollow",
+      });
+      return res.end();
+    }
+    res.setHeader("X-Robots-Tag", "noindex, nofollow");
+  }
+
   if (isApiOwned(pathname)) {
     // The visitor's address, decided here: the one the trusted proxy saw (the last X-Forwarded-For
     // entry), or this connection's own. Both headers carry only that.
@@ -160,6 +288,7 @@ async function handle(req: import("node:http").IncomingMessage, res: import("nod
   }
 
   if ((req.method === "GET" || req.method === "HEAD") && pathname.includes(".") && (await serveStatic(pathname, res))) return;
+  withGzip(req, res);
   pageResponse(req, res);
   return ssr(req, res);
 }

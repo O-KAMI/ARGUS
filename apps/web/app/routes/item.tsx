@@ -393,6 +393,11 @@ function ItemView({ item }: { item: SiteItemDetail }) {
       <div className="mt-1 text-[12.5px] leading-relaxed text-ink-3">
         {isX ? `@${item.x!.handle} · X` : item.author ?? hostOf(item.links.original)}
       </div>
+      {isX && item.x!.repostedBy && (
+        <div className="mt-0.5 text-[12px] text-ink-4">
+          由 <a href={item.x!.repostedBy.url} target="_blank" rel="noopener noreferrer" className="text-ink-3 hover:text-accent">@{item.x!.repostedBy.handle}</a> 转发
+        </div>
+      )}
       <div className="mt-3 text-[12px] text-ink-4">{timeLabel}</div>
       <time dateTime={shownAt} className="mono mt-0.5 block text-[12.5px] text-ink-2">
         {fullDateTime(shownAt)}
@@ -476,6 +481,7 @@ function ItemView({ item }: { item: SiteItemDetail }) {
           <div className={`flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[13px] text-ink-3 2xl:hidden ${isX ? "" : "mb-3"}`}>
             <span className="font-semibold text-ink-2">{isX ? item.x!.authorName : item.source.name}</span>
             {isX && <span>· @{item.x!.handle} · X</span>}
+            {isX && item.x!.repostedBy && <span className="text-ink-4">· 由 @{item.x!.repostedBy.handle} 转发</span>}
             {item.author && !isX && <span>· {item.author}</span>}
             <span>·</span>
             {!item.publishedAt && <span>收录于</span>}

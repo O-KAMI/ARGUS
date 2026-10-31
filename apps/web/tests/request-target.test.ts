@@ -10,6 +10,8 @@ const upstreamPaths: string[] = [];
 const api = fakeApi((url, _res, req) => {
   upstreamPaths.push(req.url ?? "");
   if (url.pathname === "/api/site/timeline") return { cards: [], nextCursor: null, dayCounts: {}, hot: [], filters: { category: null, channel: null, tag: null } };
+  if (url.pathname === "/api/site/hot") return { computedAt: null, windowHours: 48, entries: [], announcements: [] };
+  if (url.pathname === "/api/site/topics") return { groups: [], topics: [] };
 });
 
 before(async () => { web = await startWebServer(api); });

@@ -1,370 +1,929 @@
 {
-  "$comment": "示范信源：首次启动时导入（scripts/seed.ts），已存在的不会被覆盖。之后在后台“信源”里新建、修改和暂停。字段说明见 docs/customize.md。",
+  "$comment": "由当前运行库只读导出的实际信源；scripts/seed.ts 仅导入新 ID，不覆盖已有信源。全部是 X 源，tags 里的 track:learning 表示走学习轨精选（口径见 industry/selection.ts）。",
   "sources": [
     {
-      "id": "rss-openai-news",
-      "name": "OpenAI News",
-      "kind": "rss",
+      "id": "x-ameliax111",
+      "name": "Ameliayu 余一 (@ameliax111)",
+      "kind": "x_search",
       "config": {
-        "feedUrl": "https://openai.com/news/rss.xml",
-        "_aihot": {
-          "initialBackfillLimit": 8
-        }
+        "query": "from:ameliax111 -filter:replies",
+        "provider": "fxtwitter",
+        "searchType": "Latest"
       },
-      "tier": "T1",
-      "owner_entity_id": "openai",
-      "participation_mode": "editorial",
-      "interval_minutes": 120,
-      "tags": [
-        "官方"
-      ],
-      "site_fulltext": false,
-      "syndicate_fulltext": false
-    },
-    {
-      "id": "rss-google-deepmind",
-      "name": "Google DeepMind",
-      "kind": "rss",
-      "config": {
-        "feedUrl": "https://deepmind.google/blog/rss.xml",
-        "_aihot": {
-          "initialBackfillLimit": 8
-        }
-      },
-      "tier": "T1",
-      "owner_entity_id": "google",
-      "participation_mode": "editorial",
-      "interval_minutes": 120,
-      "tags": [
-        "官方"
-      ],
-      "site_fulltext": false,
-      "syndicate_fulltext": false
-    },
-    {
-      "id": "rss-google-research",
-      "name": "Google Research",
-      "kind": "rss",
-      "config": {
-        "feedUrl": "https://research.google/blog/rss/",
-        "_aihot": {
-          "initialBackfillLimit": 8
-        }
-      },
-      "tier": "T1",
-      "owner_entity_id": "google",
-      "participation_mode": "editorial",
-      "interval_minutes": 120,
-      "tags": [
-        "官方",
-        "研究"
-      ],
-      "site_fulltext": false,
-      "syndicate_fulltext": false
-    },
-    {
-      "id": "rss-hugging-face",
-      "name": "Hugging Face Blog",
-      "kind": "rss",
-      "config": {
-        "feedUrl": "https://huggingface.co/blog/feed.xml",
-        "_aihot": {
-          "initialBackfillLimit": 8
-        }
-      },
-      "tier": "T1",
-      "owner_entity_id": "hugging-face",
-      "participation_mode": "editorial",
-      "interval_minutes": 120,
-      "tags": [
-        "官方",
-        "开源"
-      ],
-      "site_fulltext": false,
-      "syndicate_fulltext": false
-    },
-    {
-      "id": "rss-microsoft-research",
-      "name": "Microsoft Research",
-      "kind": "rss",
-      "config": {
-        "feedUrl": "https://www.microsoft.com/en-us/research/feed/",
-        "_aihot": {
-          "initialBackfillLimit": 8
-        }
-      },
-      "tier": "T1",
-      "owner_entity_id": "microsoft",
-      "participation_mode": "editorial",
-      "interval_minutes": 120,
-      "tags": [
-        "官方",
-        "研究"
-      ],
-      "site_fulltext": false,
-      "syndicate_fulltext": false
-    },
-    {
-      "id": "rss-nvidia-blog",
-      "name": "NVIDIA Blog",
-      "kind": "rss",
-      "config": {
-        "feedUrl": "https://blogs.nvidia.com/feed/",
-        "_aihot": {
-          "initialBackfillLimit": 8
-        }
-      },
-      "tier": "T1",
-      "owner_entity_id": "nvidia",
-      "participation_mode": "editorial",
-      "interval_minutes": 120,
-      "tags": [
-        "官方"
-      ],
-      "site_fulltext": false,
-      "syndicate_fulltext": false
-    },
-    {
-      "id": "rss-aws-ml",
-      "name": "AWS Machine Learning Blog",
-      "kind": "rss",
-      "config": {
-        "feedUrl": "https://aws.amazon.com/blogs/machine-learning/feed/",
-        "_aihot": {
-          "initialBackfillLimit": 8
-        }
-      },
-      "tier": "T1",
+      "tier": "T2",
       "owner_entity_id": null,
       "participation_mode": "editorial",
-      "interval_minutes": 120,
+      "interval_minutes": 360,
       "tags": [
-        "官方",
-        "教程"
+        "X",
+        "track:learning"
       ],
       "site_fulltext": false,
-      "syndicate_fulltext": false
+      "syndicate_fulltext": false,
+      "enabled": true
     },
     {
-      "id": "rss-github-ai",
-      "name": "GitHub Blog · AI & ML",
-      "kind": "rss",
+      "id": "x-andrewyng",
+      "name": "Andrew Ng (@AndrewYNg)",
+      "kind": "x_search",
       "config": {
-        "feedUrl": "https://github.blog/ai-and-ml/feed/",
-        "_aihot": {
-          "initialBackfillLimit": 8
-        }
+        "query": "from:AndrewYNg -filter:replies",
+        "provider": "fxtwitter",
+        "searchType": "Latest"
       },
-      "tier": "T1",
+      "tier": "T2",
       "owner_entity_id": null,
       "participation_mode": "editorial",
-      "interval_minutes": 120,
+      "interval_minutes": 360,
       "tags": [
-        "官方"
+        "X",
+        "track:learning"
       ],
       "site_fulltext": false,
-      "syndicate_fulltext": false
+      "syndicate_fulltext": false,
+      "enabled": true
     },
     {
-      "id": "rss-mistral",
-      "name": "Mistral AI",
-      "kind": "rss",
+      "id": "x-anthropicai",
+      "name": "Anthropic (@AnthropicAI)",
+      "kind": "x_search",
       "config": {
-        "feedUrl": "https://mistral.ai/news/rss",
-        "_aihot": {
-          "initialBackfillLimit": 8
-        }
+        "query": "from:AnthropicAI -filter:replies",
+        "provider": "fxtwitter",
+        "searchType": "Latest"
       },
-      "tier": "T1",
+      "tier": "T2",
       "owner_entity_id": null,
       "participation_mode": "editorial",
-      "interval_minutes": 120,
+      "interval_minutes": 360,
       "tags": [
-        "官方"
+        "X",
+        "track:learning"
       ],
       "site_fulltext": false,
-      "syndicate_fulltext": false
+      "syndicate_fulltext": false,
+      "enabled": true
     },
     {
-      "id": "rss-bair",
-      "name": "Berkeley AI Research",
-      "kind": "rss",
+      "id": "x-berryxia",
+      "name": "Berryxia.AI (@berryxia)",
+      "kind": "x_search",
       "config": {
-        "feedUrl": "https://bair.berkeley.edu/blog/feed.xml",
-        "_aihot": {
-          "initialBackfillLimit": 8
-        }
+        "query": "from:berryxia -filter:replies",
+        "provider": "fxtwitter",
+        "searchType": "Latest"
       },
-      "tier": "T1",
+      "tier": "T2",
       "owner_entity_id": null,
       "participation_mode": "editorial",
-      "interval_minutes": 180,
+      "interval_minutes": 360,
       "tags": [
-        "研究"
+        "X",
+        "track:learning"
       ],
       "site_fulltext": false,
-      "syndicate_fulltext": false
+      "syndicate_fulltext": false,
+      "enabled": true
     },
     {
-      "id": "rss-the-verge-ai",
-      "name": "The Verge · AI",
-      "kind": "rss",
+      "id": "x-chatgpt",
+      "name": "ChatGPT (@ChatGPT)",
+      "kind": "x_search",
       "config": {
-        "feedUrl": "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml",
-        "_aihot": {
-          "initialBackfillLimit": 8
-        }
+        "query": "from:ChatGPT -filter:replies",
+        "provider": "fxtwitter",
+        "searchType": "Latest"
+      },
+      "tier": "T2",
+      "owner_entity_id": null,
+      "participation_mode": "editorial",
+      "interval_minutes": 360,
+      "tags": [
+        "X",
+        "track:learning"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false,
+      "enabled": true
+    },
+    {
+      "id": "x-chunxiangai",
+      "name": "赵纯想 (@chunxiangai)",
+      "kind": "x_search",
+      "config": {
+        "query": "from:chunxiangai -filter:replies",
+        "provider": "fxtwitter",
+        "searchType": "Latest"
+      },
+      "tier": "T2",
+      "owner_entity_id": null,
+      "participation_mode": "editorial",
+      "interval_minutes": 360,
+      "tags": [
+        "X",
+        "track:learning"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false,
+      "enabled": true
+    },
+    {
+      "id": "x-claudeai",
+      "name": "Claude (@claudeai)",
+      "kind": "x_search",
+      "config": {
+        "query": "from:claudeai -filter:replies",
+        "provider": "fxtwitter",
+        "searchType": "Latest"
+      },
+      "tier": "T2",
+      "owner_entity_id": null,
+      "participation_mode": "editorial",
+      "interval_minutes": 360,
+      "tags": [
+        "X",
+        "track:learning"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false,
+      "enabled": true
+    },
+    {
+      "id": "x-cnyzgkc",
+      "name": "木马人 (@cnyzgkc)",
+      "kind": "x_search",
+      "config": {
+        "query": "from:cnyzgkc -filter:replies",
+        "provider": "fxtwitter",
+        "searchType": "Latest"
+      },
+      "tier": "T2",
+      "owner_entity_id": null,
+      "participation_mode": "editorial",
+      "interval_minutes": 360,
+      "tags": [
+        "X",
+        "track:learning"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false,
+      "enabled": true
+    },
+    {
+      "id": "x-demishassabis",
+      "name": "Demis Hassabis (@demishassabis)",
+      "kind": "x_search",
+      "config": {
+        "query": "from:demishassabis -filter:replies",
+        "provider": "fxtwitter",
+        "searchType": "Latest"
+      },
+      "tier": "T2",
+      "owner_entity_id": null,
+      "participation_mode": "editorial",
+      "interval_minutes": 360,
+      "tags": [
+        "X",
+        "track:learning"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false,
+      "enabled": true
+    },
+    {
+      "id": "x-dotey",
+      "name": "宝玉 (@dotey)",
+      "kind": "x_search",
+      "config": {
+        "query": "from:dotey -filter:replies",
+        "provider": "fxtwitter",
+        "searchType": "Latest"
       },
       "tier": "T2",
       "owner_entity_id": null,
       "participation_mode": "editorial",
       "interval_minutes": 60,
       "tags": [
-        "媒体"
+        "X",
+        "track:learning"
       ],
       "site_fulltext": false,
-      "syndicate_fulltext": false
+      "syndicate_fulltext": false,
+      "enabled": true
     },
     {
-      "id": "rss-techcrunch-ai",
-      "name": "TechCrunch · AI",
-      "kind": "rss",
+      "id": "x-drfeifei",
+      "name": "Fei-Fei Li (@drfeifei)",
+      "kind": "x_search",
       "config": {
-        "feedUrl": "https://techcrunch.com/category/artificial-intelligence/feed/",
-        "_aihot": {
-          "initialBackfillLimit": 8
-        }
+        "query": "from:drfeifei -filter:replies",
+        "provider": "fxtwitter",
+        "searchType": "Latest"
+      },
+      "tier": "T2",
+      "owner_entity_id": null,
+      "participation_mode": "editorial",
+      "interval_minutes": 360,
+      "tags": [
+        "X",
+        "track:learning"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false,
+      "enabled": true
+    },
+    {
+      "id": "x-emilkowalski",
+      "name": "Emil Kowalski (@emilkowalski)",
+      "kind": "x_search",
+      "config": {
+        "query": "from:emilkowalski -filter:replies",
+        "provider": "fxtwitter",
+        "searchType": "Latest"
+      },
+      "tier": "T2",
+      "owner_entity_id": null,
+      "participation_mode": "editorial",
+      "interval_minutes": 360,
+      "tags": [
+        "X",
+        "track:learning"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false,
+      "enabled": true
+    },
+    {
+      "id": "x-emollick",
+      "name": "Ethan Mollick (@emollick)",
+      "kind": "x_search",
+      "config": {
+        "query": "from:emollick -filter:replies",
+        "provider": "fxtwitter",
+        "searchType": "Latest"
       },
       "tier": "T2",
       "owner_entity_id": null,
       "participation_mode": "editorial",
       "interval_minutes": 60,
       "tags": [
-        "媒体"
+        "X",
+        "track:learning"
       ],
       "site_fulltext": false,
-      "syndicate_fulltext": false
+      "syndicate_fulltext": false,
+      "enabled": true
     },
     {
-      "id": "rss-ars-technica-ai",
-      "name": "Ars Technica · AI",
-      "kind": "rss",
+      "id": "x-googleai",
+      "name": "Google AI (@GoogleAI)",
+      "kind": "x_search",
       "config": {
-        "feedUrl": "https://arstechnica.com/ai/feed/",
-        "_aihot": {
-          "initialBackfillLimit": 8
-        }
+        "query": "from:GoogleAI -filter:replies",
+        "provider": "fxtwitter",
+        "searchType": "Latest"
       },
       "tier": "T2",
       "owner_entity_id": null,
       "participation_mode": "editorial",
       "interval_minutes": 60,
       "tags": [
-        "媒体"
+        "X",
+        "track:learning"
       ],
       "site_fulltext": false,
-      "syndicate_fulltext": false
+      "syndicate_fulltext": false,
+      "enabled": true
     },
     {
-      "id": "rss-mit-tech-review-ai",
-      "name": "MIT Technology Review · AI",
-      "kind": "rss",
+      "id": "x-googledeepmind",
+      "name": "Google DeepMind (@GoogleDeepMind)",
+      "kind": "x_search",
       "config": {
-        "feedUrl": "https://www.technologyreview.com/topic/artificial-intelligence/feed",
-        "_aihot": {
-          "initialBackfillLimit": 8
-        }
-      },
-      "tier": "T2",
-      "owner_entity_id": null,
-      "participation_mode": "editorial",
-      "interval_minutes": 120,
-      "tags": [
-        "媒体"
-      ],
-      "site_fulltext": false,
-      "syndicate_fulltext": false
-    },
-    {
-      "id": "rss-the-decoder",
-      "name": "The Decoder",
-      "kind": "rss",
-      "config": {
-        "feedUrl": "https://the-decoder.com/feed/",
-        "_aihot": {
-          "initialBackfillLimit": 8
-        }
+        "query": "from:GoogleDeepMind -filter:replies",
+        "provider": "fxtwitter",
+        "searchType": "Latest"
       },
       "tier": "T2",
       "owner_entity_id": null,
       "participation_mode": "editorial",
       "interval_minutes": 60,
       "tags": [
-        "媒体"
+        "X",
+        "track:learning"
       ],
       "site_fulltext": false,
-      "syndicate_fulltext": false
+      "syndicate_fulltext": false,
+      "enabled": true
     },
     {
-      "id": "rss-simon-willison",
-      "name": "Simon Willison",
-      "kind": "rss",
+      "id": "x-heykahn",
+      "name": "Zain Kahn (@heykahn)",
+      "kind": "x_search",
       "config": {
-        "feedUrl": "https://simonwillison.net/atom/everything/",
-        "_aihot": {
-          "initialBackfillLimit": 8
-        }
+        "query": "from:heykahn -filter:replies",
+        "provider": "fxtwitter",
+        "searchType": "Latest"
       },
       "tier": "T2",
       "owner_entity_id": null,
       "participation_mode": "editorial",
-      "interval_minutes": 120,
+      "interval_minutes": 360,
       "tags": [
-        "个人"
+        "X",
+        "track:learning"
       ],
       "site_fulltext": false,
-      "syndicate_fulltext": false
+      "syndicate_fulltext": false,
+      "enabled": true
     },
     {
-      "id": "rss-import-ai",
-      "name": "Import AI",
-      "kind": "rss",
+      "id": "x-id-aa-carmack",
+      "name": "John Carmack (@ID_AA_Carmack)",
+      "kind": "x_search",
       "config": {
-        "feedUrl": "https://importai.substack.com/feed",
-        "_aihot": {
-          "initialBackfillLimit": 8
-        }
+        "query": "from:ID_AA_Carmack -filter:replies",
+        "provider": "fxtwitter",
+        "searchType": "Latest"
       },
       "tier": "T2",
       "owner_entity_id": null,
       "participation_mode": "editorial",
-      "interval_minutes": 180,
+      "interval_minutes": 360,
       "tags": [
-        "个人",
-        "周刊"
+        "X",
+        "track:learning"
       ],
       "site_fulltext": false,
-      "syndicate_fulltext": false
+      "syndicate_fulltext": false,
+      "enabled": true
     },
     {
-      "id": "rss-latent-space",
-      "name": "Latent Space",
-      "kind": "rss",
+      "id": "x-karinanguyen",
+      "name": "Karina (@karinanguyen)",
+      "kind": "x_search",
       "config": {
-        "feedUrl": "https://www.latent.space/feed",
-        "_aihot": {
-          "initialBackfillLimit": 8
-        }
+        "query": "from:karinanguyen -filter:replies",
+        "provider": "fxtwitter",
+        "searchType": "Latest"
       },
       "tier": "T2",
       "owner_entity_id": null,
       "participation_mode": "editorial",
-      "interval_minutes": 180,
+      "interval_minutes": 360,
       "tags": [
-        "个人"
+        "X",
+        "track:learning"
       ],
       "site_fulltext": false,
-      "syndicate_fulltext": false
+      "syndicate_fulltext": false,
+      "enabled": true
+    },
+    {
+      "id": "x-karpathy",
+      "name": "Andrej Karpathy (@karpathy)",
+      "kind": "x_search",
+      "config": {
+        "query": "from:karpathy -filter:replies",
+        "provider": "fxtwitter",
+        "searchType": "Latest"
+      },
+      "tier": "T2",
+      "owner_entity_id": null,
+      "participation_mode": "editorial",
+      "interval_minutes": 360,
+      "tags": [
+        "X",
+        "track:learning"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false,
+      "enabled": true
+    },
+    {
+      "id": "x-khazix0918",
+      "name": "数字生命卡兹克 (@Khazix0918)",
+      "kind": "x_search",
+      "config": {
+        "query": "from:Khazix0918 -filter:replies",
+        "provider": "fxtwitter",
+        "searchType": "Latest"
+      },
+      "tier": "T2",
+      "owner_entity_id": null,
+      "participation_mode": "editorial",
+      "interval_minutes": 360,
+      "tags": [
+        "X",
+        "track:learning"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false,
+      "enabled": true
+    },
+    {
+      "id": "x-linusekenstam",
+      "name": "Linus ✦ Ekenstam (@LinusEkenstam)",
+      "kind": "x_search",
+      "config": {
+        "query": "from:LinusEkenstam -filter:replies",
+        "provider": "fxtwitter",
+        "searchType": "Latest"
+      },
+      "tier": "T2",
+      "owner_entity_id": null,
+      "participation_mode": "editorial",
+      "interval_minutes": 360,
+      "tags": [
+        "X",
+        "track:learning"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false,
+      "enabled": true
+    },
+    {
+      "id": "x-mattpocockuk",
+      "name": "Matt Pocock (@mattpocockuk)",
+      "kind": "x_search",
+      "config": {
+        "query": "from:mattpocockuk -filter:replies",
+        "provider": "fxtwitter",
+        "searchType": "Latest"
+      },
+      "tier": "T2",
+      "owner_entity_id": null,
+      "participation_mode": "editorial",
+      "interval_minutes": 360,
+      "tags": [
+        "X",
+        "track:learning"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false,
+      "enabled": true
+    },
+    {
+      "id": "x-miles-mazy",
+      "name": "Miles Ma (@miles_mazy)",
+      "kind": "x_search",
+      "config": {
+        "query": "from:miles_mazy -filter:replies",
+        "provider": "fxtwitter",
+        "searchType": "Latest"
+      },
+      "tier": "T2",
+      "owner_entity_id": null,
+      "participation_mode": "editorial",
+      "interval_minutes": 360,
+      "tags": [
+        "X",
+        "track:learning"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false,
+      "enabled": true
+    },
+    {
+      "id": "x-morluto",
+      "name": "morluto (@morluto)",
+      "kind": "x_search",
+      "config": {
+        "query": "from:morluto -filter:replies",
+        "provider": "fxtwitter",
+        "searchType": "Latest"
+      },
+      "tier": "T2",
+      "owner_entity_id": null,
+      "participation_mode": "editorial",
+      "interval_minutes": 360,
+      "tags": [
+        "X",
+        "track:learning"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false,
+      "enabled": true
+    },
+    {
+      "id": "x-nvidia",
+      "name": "NVIDIA (@nvidia)",
+      "kind": "x_search",
+      "config": {
+        "query": "from:nvidia -filter:replies",
+        "provider": "fxtwitter",
+        "searchType": "Latest"
+      },
+      "tier": "T2",
+      "owner_entity_id": null,
+      "participation_mode": "editorial",
+      "interval_minutes": 60,
+      "tags": [
+        "X",
+        "track:learning"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false,
+      "enabled": true
+    },
+    {
+      "id": "x-op7418",
+      "name": "歸藏(guizang.ai) (@op7418)",
+      "kind": "x_search",
+      "config": {
+        "query": "from:op7418 -filter:replies",
+        "provider": "fxtwitter",
+        "searchType": "Latest"
+      },
+      "tier": "T2",
+      "owner_entity_id": null,
+      "participation_mode": "editorial",
+      "interval_minutes": 360,
+      "tags": [
+        "X",
+        "track:learning"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false,
+      "enabled": true
+    },
+    {
+      "id": "x-openai",
+      "name": "OpenAI (@OpenAI)",
+      "kind": "x_search",
+      "config": {
+        "query": "from:OpenAI -filter:replies",
+        "provider": "fxtwitter",
+        "searchType": "Latest"
+      },
+      "tier": "T2",
+      "owner_entity_id": null,
+      "participation_mode": "editorial",
+      "interval_minutes": 60,
+      "tags": [
+        "X",
+        "track:learning"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false,
+      "enabled": true
+    },
+    {
+      "id": "x-paultrillo",
+      "name": "Paul Trillo (@paultrillo)",
+      "kind": "x_search",
+      "config": {
+        "query": "from:paultrillo -filter:replies",
+        "provider": "fxtwitter",
+        "searchType": "Latest"
+      },
+      "tier": "T2",
+      "owner_entity_id": null,
+      "participation_mode": "editorial",
+      "interval_minutes": 360,
+      "tags": [
+        "X",
+        "track:learning"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false,
+      "enabled": true
+    },
+    {
+      "id": "x-poteto",
+      "name": "lauren (@poteto)",
+      "kind": "x_search",
+      "config": {
+        "query": "from:poteto -filter:replies",
+        "provider": "fxtwitter",
+        "searchType": "Latest"
+      },
+      "tier": "T2",
+      "owner_entity_id": null,
+      "participation_mode": "editorial",
+      "interval_minutes": 360,
+      "tags": [
+        "X",
+        "track:learning"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false,
+      "enabled": true
+    },
+    {
+      "id": "x-rowancheung",
+      "name": "Rowan Cheung (@rowancheung)",
+      "kind": "x_search",
+      "config": {
+        "query": "from:rowancheung -filter:replies",
+        "provider": "fxtwitter",
+        "searchType": "Latest"
+      },
+      "tier": "T2",
+      "owner_entity_id": null,
+      "participation_mode": "editorial",
+      "interval_minutes": 60,
+      "tags": [
+        "X",
+        "track:learning"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false,
+      "enabled": true
+    },
+    {
+      "id": "x-saccc-c",
+      "name": "Sac (@Saccc_c)",
+      "kind": "x_search",
+      "config": {
+        "query": "from:Saccc_c -filter:replies",
+        "provider": "fxtwitter",
+        "searchType": "Latest"
+      },
+      "tier": "T2",
+      "owner_entity_id": null,
+      "participation_mode": "editorial",
+      "interval_minutes": 360,
+      "tags": [
+        "X",
+        "track:learning"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false,
+      "enabled": true
+    },
+    {
+      "id": "x-sama",
+      "name": "Sam Altman (@sama)",
+      "kind": "x_search",
+      "config": {
+        "query": "from:sama -filter:replies",
+        "provider": "fxtwitter",
+        "searchType": "Latest"
+      },
+      "tier": "T2",
+      "owner_entity_id": null,
+      "participation_mode": "editorial",
+      "interval_minutes": 360,
+      "tags": [
+        "X",
+        "track:learning"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false,
+      "enabled": true
+    },
+    {
+      "id": "x-shadcn",
+      "name": "shadcn (@shadcn)",
+      "kind": "x_search",
+      "config": {
+        "query": "from:shadcn -filter:replies",
+        "provider": "fxtwitter",
+        "searchType": "Latest"
+      },
+      "tier": "T2",
+      "owner_entity_id": null,
+      "participation_mode": "editorial",
+      "interval_minutes": 360,
+      "tags": [
+        "X",
+        "track:learning"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false,
+      "enabled": true
+    },
+    {
+      "id": "x-simonw",
+      "name": "Simon Willison (@simonw)",
+      "kind": "x_search",
+      "config": {
+        "query": "from:simonw -filter:replies",
+        "provider": "fxtwitter",
+        "searchType": "Latest"
+      },
+      "tier": "T2",
+      "owner_entity_id": null,
+      "participation_mode": "editorial",
+      "interval_minutes": 60,
+      "tags": [
+        "X",
+        "track:learning"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false,
+      "enabled": true
+    },
+    {
+      "id": "x-spacex",
+      "name": "SpaceX (@SpaceX)",
+      "kind": "x_search",
+      "config": {
+        "query": "from:SpaceX -filter:replies",
+        "provider": "fxtwitter",
+        "searchType": "Latest"
+      },
+      "tier": "T2",
+      "owner_entity_id": null,
+      "participation_mode": "editorial",
+      "interval_minutes": 360,
+      "tags": [
+        "X",
+        "track:learning"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false,
+      "enabled": true
+    },
+    {
+      "id": "x-steveschoger",
+      "name": "Steve Schoger (@steveschoger)",
+      "kind": "x_search",
+      "config": {
+        "query": "from:steveschoger -filter:replies",
+        "provider": "fxtwitter",
+        "searchType": "Latest"
+      },
+      "tier": "T2",
+      "owner_entity_id": null,
+      "participation_mode": "editorial",
+      "interval_minutes": 360,
+      "tags": [
+        "X",
+        "track:learning"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false,
+      "enabled": true
+    },
+    {
+      "id": "x-swyx",
+      "name": "swyx (@swyx)",
+      "kind": "x_search",
+      "config": {
+        "query": "from:swyx -filter:replies",
+        "provider": "fxtwitter",
+        "searchType": "Latest"
+      },
+      "tier": "T2",
+      "owner_entity_id": null,
+      "participation_mode": "editorial",
+      "interval_minutes": 360,
+      "tags": [
+        "X",
+        "track:learning"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false,
+      "enabled": true
+    },
+    {
+      "id": "x-thsottiaux",
+      "name": "Tibo (@thsottiaux)",
+      "kind": "x_search",
+      "config": {
+        "query": "from:thsottiaux -filter:replies",
+        "provider": "fxtwitter",
+        "searchType": "Latest"
+      },
+      "tier": "T2",
+      "owner_entity_id": null,
+      "participation_mode": "editorial",
+      "interval_minutes": 360,
+      "tags": [
+        "X",
+        "track:learning"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false,
+      "enabled": true
+    },
+    {
+      "id": "x-tianyi",
+      "name": "Tianyi Cui (@tianyi)",
+      "kind": "x_search",
+      "config": {
+        "query": "from:tianyi -filter:replies",
+        "provider": "fxtwitter",
+        "searchType": "Latest"
+      },
+      "tier": "T2",
+      "owner_entity_id": null,
+      "participation_mode": "editorial",
+      "interval_minutes": 360,
+      "tags": [
+        "X",
+        "track:learning"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false,
+      "enabled": true
+    },
+    {
+      "id": "x-unclebobmartin",
+      "name": "Uncle Bob Martin (@unclebobmartin)",
+      "kind": "x_search",
+      "config": {
+        "query": "from:unclebobmartin -filter:replies",
+        "provider": "fxtwitter",
+        "searchType": "Latest"
+      },
+      "tier": "T2",
+      "owner_entity_id": null,
+      "participation_mode": "editorial",
+      "interval_minutes": 360,
+      "tags": [
+        "X",
+        "track:learning"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false,
+      "enabled": true
+    },
+    {
+      "id": "x-wattenberger",
+      "name": "Amelia Wattenberger 🪷 (@Wattenberger)",
+      "kind": "x_search",
+      "config": {
+        "query": "from:Wattenberger -filter:replies",
+        "provider": "fxtwitter",
+        "searchType": "Latest"
+      },
+      "tier": "T2",
+      "owner_entity_id": null,
+      "participation_mode": "editorial",
+      "interval_minutes": 60,
+      "tags": [
+        "X",
+        "track:learning"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false,
+      "enabled": true
+    },
+    {
+      "id": "x-xiaohuiyuan",
+      "name": "晓辉博士 (@xiaohuiyuan)",
+      "kind": "x_search",
+      "config": {
+        "query": "from:xiaohuiyuan -filter:replies",
+        "provider": "fxtwitter",
+        "searchType": "Latest"
+      },
+      "tier": "T2",
+      "owner_entity_id": null,
+      "participation_mode": "editorial",
+      "interval_minutes": 360,
+      "tags": [
+        "X",
+        "track:learning"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false,
+      "enabled": true
+    },
+    {
+      "id": "x-yihui-indie",
+      "name": "Yihui (@yihui_indie)",
+      "kind": "x_search",
+      "config": {
+        "query": "from:yihui_indie -filter:replies",
+        "provider": "fxtwitter",
+        "searchType": "Latest"
+      },
+      "tier": "T2",
+      "owner_entity_id": null,
+      "participation_mode": "editorial",
+      "interval_minutes": 360,
+      "tags": [
+        "X",
+        "track:learning"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false,
+      "enabled": true
+    },
+    {
+      "id": "x-ylecun",
+      "name": "Yann LeCun (@ylecun)",
+      "kind": "x_search",
+      "config": {
+        "query": "from:ylecun -filter:replies",
+        "provider": "fxtwitter",
+        "searchType": "Latest"
+      },
+      "tier": "T2",
+      "owner_entity_id": null,
+      "participation_mode": "editorial",
+      "interval_minutes": 360,
+      "tags": [
+        "X",
+        "track:learning"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false,
+      "enabled": true
     }
   ]
 }

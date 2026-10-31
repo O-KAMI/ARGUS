@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, useMemo, useState, type ReactNode } from "react";
 import { IntentLink } from "../components/ui/IntentLink";
 import { Link, useLoaderData } from "react-router";
 import type { SiteContact, SiteStats } from "@aihot/contracts/site";
@@ -193,18 +193,9 @@ function Latest({ item, className = "" }: { item: SiteStats["latest"][number] | 
 export default function AboutPage() {
   const { contact, stats } = useLoaderData<typeof loader>();
   const [focus, setFocus] = useState<number | null>(null);
-  const [at, setAt] = useState(0);
-  const shown = useRef(0);
   const sources = useMemo(() => stats?.sampleSources ?? NO_SOURCES, [stats]);
   const stages = useMemo(() => stagesOf(stats), [stats]);
   const latest = stats?.latest ?? [];
-  // A pulse reaches the paper every second or so; the headline under it changes at most every 2.8s.
-  const onArrive = useCallback(() => {
-    const now = Date.now();
-    if (now - shown.current < 2800 || latest.length < 2) return;
-    shown.current = now;
-    setAt((i) => (i + 1) % latest.length);
-  }, [latest.length]);
 
   return (
     <div className="mx-auto max-w-[var(--page-max-reading)] pb-14 lg:pt-3">
@@ -212,7 +203,7 @@ export default function AboutPage() {
       <header className="grid items-end gap-8 pt-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:pt-0">
         <div>
           <Kicker>{ABOUT.kicker}</Kicker>
-          <h1 data-page-title="" className="mt-5 text-[34px] font-black leading-[1.18] tracking-[-0.03em] text-ink [text-wrap:balance] sm:text-[46px] xl:text-[56px] 2xl:text-[64px]">
+          <h1 data-page-title="" className="mt-5 font-serif text-[34px] font-semibold leading-[1.18] tracking-[0.01em] text-ink [text-wrap:balance] sm:text-[46px] xl:text-[56px] 2xl:text-[64px]">
             {ABOUT.headline[0]}
             <br />
             <span className="text-accent">{ABOUT.headline[1]}</span>
@@ -240,11 +231,11 @@ export default function AboutPage() {
         <h2 id="how" className="sr-only">
           {`${SITE.name} 怎么工作`}
         </h2>
-        <SignalRiver sources={sources} focus={focus} onArrive={onArrive} className="h-[230px] sm:h-[300px] lg:h-[360px] 2xl:h-[420px]">
-          <Latest item={latest[at]} className="absolute left-[75%] top-[calc(42%+42px)] hidden w-[25%] px-6 lg:block" />
+        <SignalRiver sources={sources} focus={focus} className="h-[230px] sm:h-[300px] lg:h-[360px] 2xl:h-[420px]">
+          <Latest item={latest[0]} className="absolute left-[75%] top-[calc(42%+42px)] hidden w-[25%] px-6 lg:block" />
         </SignalRiver>
         <p className="sr-only">{`示意图：每条线是一个信源；线汇成一束束，代表同一件事的多篇报道；经过精选的闸门，只有少数几束通过，${subjectAfter("汇入每天的", "日报")}。`}</p>
-        <Latest item={latest[at]} className="mt-2 border-t border-line pt-4 lg:hidden" />
+        <Latest item={latest[0]} className="mt-2 border-t border-line pt-4 lg:hidden" />
         <ol className="mt-4 grid grid-cols-1 border-t border-line-strong sm:grid-cols-2 lg:mt-0 lg:grid-cols-4">
           {stages.map((s, i) => (
             <li

@@ -10,7 +10,7 @@ cd myhot
 node scripts/init-env.ts --llm-key <你的模型 API Key>
 ```
 
-`init-env.ts` 会生成 `.env`，填好随机密钥和管理员密码，并把密码打印一次。机器上没有 Node 的话，把 `.env.example` 复制成 `.env`，自己填 `ADMIN_PASSWORD`（至少 12 位）、`SESSION_SECRET`、`IMG_PROXY_SIGN_SECRET`、`POSTGRES_PASSWORD`（各用 `openssl rand -hex 32` 生成）和 `LLM_API_KEY`。
+`init-env.ts` 会生成 `.env`，先生成至少 32 位的随机 `INTERNAL_TOKEN`，再启用 `PRIVATE_ACCESS=true`，并填好其他随机密钥和管理员密码，把密码打印一次。机器上没有 Node 的话，把 `.env.example` 复制成 `.env`，自己填 `INTERNAL_TOKEN`（至少 32 位）、`ADMIN_PASSWORD`（至少 12 位）、`SESSION_SECRET`、`IMG_PROXY_SIGN_SECRET`、`POSTGRES_PASSWORD`（各用 `openssl rand -hex 32` 生成）和 `LLM_API_KEY`。web 与 api 必须使用同一个 `INTERNAL_TOKEN`；私有访问开启时缺少或使用过短的令牌会明确拒绝启动，不会退回匿名开放。
 
 启动前检查 `.env` 的 `SITE_URL`：本机试用保留 `http://localhost:3000`；部署到服务器时改成读者实际访问的地址。例如通过服务器 IP 访问时（把示例 IP 换成自己的）：
 
@@ -61,6 +61,12 @@ MCP 默认接受 `SITE_URL` 的主机以及 `localhost`、`127.0.0.1`、`[::1]`�
 前面有 Nginx、CDN 这类缓存时，要遵循应用返回的缓存期限（`Cache-Control`）：公开网页、导航数据、API、RSS、条目 Markdown、报告分享图、站点地图，以及接入说明 `/api/v1/agent` 和 `/openapi-v1.json`（五分钟到期后也要重新验证），都不要另加更长的缓存期，不要在到期后离线返回旧内容，也不要在转发旧响应时重新起算它的寿命；不要让代理和 CDN 叠加缓存动态内容。框架不代管自建站的 CDN，也不替它清缓存。
 
 ### 更新
+
+#### 默认私有访问（安全行为变更）
+
+`PRIVATE_ACCESS` 未设置或留空时现在默认 `true`，Docker Compose 的 web 与 api 也使用同一默认值，不再只有示例配置默认私有。`init-env.ts` 会先生成满足长度要求的 `INTERNAL_TOKEN`，再启用私有访问；健康检查与登录入口的可用性不变，无需数据库迁移。
+
+**已有匿名部署如果 `.env` 里没有显式设置 `PRIVATE_ACCESS=false`，升级后会变为需要登录才能阅读。** 如果此时缺少至少 32 位的 `INTERNAL_TOKEN`，web 与 api 会明确报错并拒绝启动，不会匿名开放，也不会只显示无法登录的站点。升级后仍要匿名阅读的部署，应在启动新版前显式设置 `PRIVATE_ACCESS=false`；要转为私有访问的部署，应生成随机令牌并在 web 与 api 中配置同一个值，读者随后使用访问密码登录。
 
 新增选填的 `PRIVATE_FEED_HOSTS`：信源订阅或列表地址用自建在内网的服务（比如 RSSHub）时，把它的主机名写进去，不必再打开整站的 `ALLOW_PRIVATE_NETWORK_FETCH`，用法见 [信源](sources.md)。不设置时行为不变；无需数据库迁移。
 

@@ -7,6 +7,10 @@ import { logError } from "./errors.server.ts";
 /** Where the api listens (API_BASE_URL, set by the deployment); development uses the default. */
 export const API_BASE_URL = process.env.API_BASE_URL || "http://127.0.0.1:3001";
 
+/** While PRIVATE_ACCESS is on, server-side reads carry this shared secret instead of a reader cookie. */
+const INTERNAL_TOKEN = process.env.INTERNAL_TOKEN || null;
+export const internalHeaders: Record<string, string> = INTERNAL_TOKEN ? { "x-argus-internal": INTERNAL_TOKEN } : {};
+
 /** An api answer other than 2xx. A merged story answers 308 with the story it now lives in. */
 class ApiError extends Error {
   readonly status: number;
@@ -23,7 +27,7 @@ class ApiError extends Error {
 export async function apiGet<T>(path: string, init?: { signal?: AbortSignal; headers?: Record<string, string>; responseHeaders?: Headers }): Promise<T> {
   try {
     const res = await fetch(`${API_BASE_URL}${path}`, {
-      headers: { accept: "application/json", "x-aihot-ssr": "1", ...init?.headers },
+      headers: { accept: "application/json", "x-aihot-ssr": "1", ...internalHeaders, ...init?.headers },
       redirect: "manual",
       signal: init?.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(15_000)]) : AbortSignal.timeout(15_000),
     });

@@ -76,3 +76,31 @@ node --env-file=.env scripts/eval-relations.ts \
 token 用量和平均耗时按报告引用的回执对应的全部请求尝试汇总，包括之前解析失败的响应；同一张回执不会因为多条样本重复计算。用已有结果重跑时仍显示这些历史用量，不代表这次新增的费用。
 
 CI 检查 JSONL 解析、固定种子的抽样、各项指标，以及本地假模型服务下的并发复用和重试用量统计，不访问外部模型服务。
+
+## 资产身份键与学习轨归并口径（2026-10-31 起）
+
+### 问题
+
+同一个 GitHub 仓库 / skill / 教程被 5 个大佬分别推荐 → 5 篇不同 URL 的帖子、5 个不同的"发生" → 精选里出现 5 条重复。原有的语义召回问的是"是否同一次发生"，帧是 `{subject, action, object, occurredAt}`，答不了这个问题；而且 `recallFacts` 只看 14 天，一个月内被反复推荐的同一个资产会跨窗口漏合并。
+
+### 确定性锚点：`articles.asset_key`
+
+入库时从正文与 `x_post`（含被引用帖）正则抽**主外链资产**，经 `lib/url.ts normalizeUrl` 归一后写键：`gh:owner/repo`、`hf:owner/repo`、`npm:<pkg>`、`pypi:<pkg>`、`url:<normalized>`。实现在 `packages/backend/src/lib/asset-key.ts`，接线在 `content/materials.ts assetOf()`，回填脚本 `scripts/backfill-asset-key.ts`。
+
+**纯正则、零模型调用，且在采集入库时完成**——不违反"页面打开不得触发模型调用"。社交域名与帖子自身永久链接被排除（`NOT_AN_ASSET` 在点边界匹配并允许带 TLD，所以 `mobile.twitter.com` 排除、`next.com` 不排除）。抽取顺序：gh → hf → npm → pypi → 第一个归一后非社交且不等于自身 URL 的外链。
+
+**为什么不复用 `identity_key`**：它是材料自身的全局身份、驱动修订判定。把两篇不同帖子写成同一个 `identity_key` 会让其中一篇变成另一篇的修订版、内容被覆盖——那是错的。两篇帖子都该存在，在 **fact 层**合并。
+
+`asset_key` 变化视为修订（同一篇帖子后来补上了仓库链接），走既有 `recheckSelection` / `resetAutomatic` 路径，不新写状态机。
+
+### 归并口径
+
+`events/recall.ts relatedPosts()` 增 `sameAsset` 查询，与 `sameUrl` 同构（跨源、`fa.role IN ('primary','report')`、`st.merged_into IS NULL`、`groupingEvidenceCondition`），但**不受 14 天召回窗口限制**（精确键查找）。`events/group.ts decide()` 把 `sameAsset` 与 `sameUrl` 同等对待，产出 verdict `same-asset`，并同样参与代表席位（`publications.seat`）判定。
+
+### 语义兜底
+
+新增 `group-batch-learning.md` / `group-pair-learning.md`（及配套 `-learning` 定义与方法文件）：判定问题从"是否同一次发生"改为"**是否指向同一个资产 / 同一份教程 / 同一个玩法**"，帧从 `{subject, action, object, occurredAt}` 改为 `{asset, assetKind, author, whatItOffers}`。跨平台同内容（同一条 X + 同一个 bilibili 教程）只能靠这条路径，属**尽力而为**，不做确定性保证。
+
+**必须是独立文件，不能用 `{{track}}` 值参数化**：`editorial/prompts.ts promptVersion` 只对**文件内容**做哈希、不含填入的值。值参数化会让两种不同措辞产生同一个版本号，回执与后台模型页就无法区分是哪套措辞产出的结果。新闻轨的 `group-batch.md` / `group-pair.md` / `group-definitions.md` / `group-method.md` **一字未改**，其内容哈希、历史回执与可比性全部保留。
+
+成本：资产键抽取零成本；语义归并复用现有 `group` 路由与回执，**不新增调用次数**（同一批候选一次判定）。

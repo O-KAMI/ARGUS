@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { identityKeyForUrl, normalizeUrl, tweetIdFromUrl } from "../packages/backend/src/lib/url.ts";
+import { identityKeyFor } from "../packages/backend/src/content/materials.ts";
+
+const materialIdentity = (url: string) => identityKeyFor({ sourceId: "video-source", url, title: "Video", via: "fetch" });
 
 test("X and Twitter status URL variants keep the same material identity", () => {
   for (const host of ["x.com", "twitter.com", "www.x.com", "www.twitter.com", "mobile.twitter.com", "m.twitter.com"]) {
@@ -46,4 +49,28 @@ test("invalid and non-HTTP URLs cannot acquire a tweet identity", () => {
     assert.equal(tweetIdFromUrl(url), null, url);
     assert.equal(identityKeyForUrl(url), null, url);
   }
+});
+
+test("YouTube watch, shorts, share and embed variants converge on their video ID", () => {
+  const id = "COJAZQM1aeQ";
+  for (const url of [
+    `https://www.youtube.com/watch?v=${id}`,
+    `https://m.youtube.com/watch?utm_source=share&v=${id}&t=30`,
+    `https://www.youtube.com/shorts/${id}?feature=share`,
+    `https://youtu.be/${id}?si=tracking&t=30`,
+    `https://www.youtube.com/embed/${id}?start=30`,
+  ]) assert.equal(materialIdentity(url), `youtube:${id}`, url);
+  assert.equal(materialIdentity(`https://www.youtube.com/watch?v=FByNauagcbY`), "youtube:FByNauagcbY");
+  assert.notEqual(materialIdentity(`https://youtu.be/${id}`), materialIdentity("https://youtu.be/FByNauagcbY"));
+});
+
+test("Bilibili URL variants and parts share a BV identity without merging different videos", () => {
+  const bvid = "BV1xx411c7XX";
+  for (const url of [
+    `https://www.bilibili.com/video/${bvid}`,
+    `https://bilibili.com/video/${bvid}/?spm_id_from=333.1007`,
+    `https://m.bilibili.com/video/${bvid}?p=2`,
+    `https://www.bilibili.com/video/${bvid}?p=3&vd_source=tracking`,
+  ]) assert.equal(materialIdentity(url), `bilibili:${bvid}`, url);
+  assert.notEqual(materialIdentity(`https://www.bilibili.com/video/${bvid}?p=1`), materialIdentity("https://www.bilibili.com/video/BV1yy411c7XY?p=1"));
 });

@@ -4,6 +4,7 @@
 // events (linkRelatedStories, hourly).
 import { modelRoute } from "../editorial/models.ts";
 import { beijingDate } from "@aihot/contracts/time";
+import type { Track } from "@aihot/industry/selection";
 import { sql } from "../db.ts";
 import { chatJson } from "../providers/llm.ts";
 import { completeReceipt } from "../providers/receipts.ts";
@@ -12,7 +13,7 @@ import { mergeStoryInto } from "./merge.ts";
 import { RECALL_DAYS, rootFactOf } from "./recall.ts";
 import { firmTie, latestJudgements, RELATED_MIN_REPORTS } from "./related.ts";
 import {
-  PAIR_SYSTEM, PairSchema, RELATE_PROMPT_VERSION, STORY_REVIEW_MIN_CONFIDENCE, firmlyTied, pairUser,
+  PairSchema, STORY_REVIEW_MIN_CONFIDENCE, firmlyTied, pairSystem, pairUser, relatePromptVersion,
   type Relation, type ReportView,
 } from "./relate.ts";
 
@@ -54,10 +55,10 @@ async function storyRoot(storyId: number): Promise<StoryRoot | null> {
   };
 }
 
-async function judgeStories(capability: "group" | "groupReview", a: StoryRoot, b: StoryRoot): Promise<{ relation: Relation; confidence: number; difference: string; receiptId: number }> {
+async function judgeStories(capability: "group" | "groupReview", track: Track, a: StoryRoot, b: StoryRoot): Promise<{ relation: Relation; confidence: number; difference: string; receiptId: number }> {
   const res = await chatJson({
     ...await modelRoute(capability), purpose: capability === "group" ? "group_story" : "group_story_review", subject: `story:${a.storyId}:${b.storyId}`,
-    promptVersion: RELATE_PROMPT_VERSION, system: PAIR_SYSTEM, user: pairUser(a.report, b.report), schema: PairSchema, temperature: 0, maxTokens: 400,
+    promptVersion: relatePromptVersion(track), system: pairSystem(track), user: pairUser(a.report, b.report), schema: PairSchema, temperature: 0, maxTokens: 400,
   });
   return { relation: res.data.relation, confidence: res.data.confidence, difference: res.data.difference, receiptId: res.receiptId };
 }
@@ -89,9 +90,10 @@ export interface Consolidation {
  * Stories a report is firmly tied to may be one story that grew two roots. Their roots are compared
  * directly, the earliest against each of the others, and a story merges into the earliest only when
  * the judge and then the review model both see one occurrence or a direct development: a report tied
- * to two different events (a comparison, a roundup) cannot fuse them on its own.
+ * to two different events (a comparison, a roundup) cannot fuse them on its own. The comparison is
+ * worded for the track of the report that tied them, so its receipt says which wording decided.
  */
-export async function consolidate(storyIds: number[]): Promise<Consolidation[]> {
+export async function consolidate(storyIds: number[], track: Track): Promise<Consolidation[]> {
   const live = new Set<number>();
   for (const id of storyIds) {
     const s = await liveStory(id);
@@ -105,14 +107,14 @@ export async function consolidate(storyIds: number[]): Promise<Consolidation[]> 
   const out: Consolidation[] = [];
   for (const other of others) {
     const base = { from: other.storyId, into: anchor.storyId, fromTitle: other.report.title, intoTitle: anchor.report.title };
-    const first = await judgeStories("group", anchor, other);
+    const first = await judgeStories("group", track, anchor, other);
     await completeReceipt(sql, first.receiptId);
     if (!firmlyTied(first.relation, first.confidence)) {
       out.push({ ...base, merge: false, first: first.relation, second: null, difference: first.difference });
       continue;
     }
     // The review model reads the pair the other way round.
-    const second = await judgeStories("groupReview", other, anchor);
+    const second = await judgeStories("groupReview", track, other, anchor);
     await completeReceipt(sql, second.receiptId);
     const merge = firmlyTied(second.relation, second.confidence, STORY_REVIEW_MIN_CONFIDENCE)
       && !!await mergeStoryInto(other.storyId, anchor.storyId, `同一事件（${first.relation}，复核 ${second.relation}）：${other.report.title}｜${anchor.report.title}`, "grouping");

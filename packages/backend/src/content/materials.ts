@@ -3,6 +3,8 @@
 import { sql, type Db, type Tx } from "../db.ts";
 import { newArticleId, sha256, stableJson } from "../lib/ids.ts";
 import { identityKeyForUrl } from "../lib/url.ts";
+import { assetKey } from "../lib/asset-key.ts";
+import { videoIdentityKeyForUrl } from "../lib/video-url.ts";
 import { collapseWhitespace, decodeEntities } from "../lib/text.ts";
 import { publishArticleTx } from "../publication/publish.ts";
 import { groupingReset, reconcileMaterialSource } from "./provenance.ts";
@@ -26,6 +28,8 @@ export interface XPostData {
   avatarUrl?: string | null;
   text: string;
   quoted?: { authorName: string; handle: string; text: string; url: string; media?: MediaItem[] } | null;
+  /** The followed account that reposted this post; the post's own author stays in authorName/handle. */
+  repostedBy?: { authorName: string; handle: string; url: string } | null;
   media?: MediaItem[];
   lang?: string | null;
   replyTo?: string | null;
@@ -183,6 +187,8 @@ function sameBarringLoss(a: string | null | undefined, b: string | null | undefi
 export function identityKeyFor(m: MaterialInput): string {
   if (m.identityKey) return m.identityKey;
   if (m.xPost?.tweetId) return `x:${m.xPost.tweetId}`;
+  const fromVideoUrl = videoIdentityKeyForUrl(m.url);
+  if (fromVideoUrl) return fromVideoUrl;
   const fromUrl = identityKeyForUrl(m.url);
   if (fromUrl) return fromUrl;
   return `src:${m.sourceId}:${sha256(m.url + "\u0001" + m.title).slice(0, 32)}`;
@@ -228,8 +234,16 @@ async function lockMaterial(db: Db, identityKey: string) {
   return existing;
 }
 
-async function upsertIn(db: Db, m: MaterialInput): Promise<MaterialResult> {
-  m = { ...m,
+/**
+ * The asset a post recommends, from whatever text this report carries (falling back to the stored body
+ * on a revision). Regex only, at ingest: a reader opening a page must never trigger a model call.
+ */
+function assetOf(m: MaterialInput, title: string, bodyText?: string | null, excerpt?: string | null): string | null {
+  const x = m.xPost as { text?: string; quoted?: { text?: string } } | null;
+  return assetKey([m.bodyText ?? bodyText, m.excerpt ?? excerpt, x?.text, x?.quoted?.text, title].filter(Boolean).join("\n"), m.url);
+}
+
+async function upsertIn(db: Db, m: MaterialInput): Promise<MaterialResult> {  m = { ...m,
     publishedAt: m.publishedAt && Number.isFinite(m.publishedAt.getTime()) ? m.publishedAt : null,
     sourceUpdatedAt: m.sourceUpdatedAt && Number.isFinite(m.sourceUpdatedAt.getTime()) ? m.sourceUpdatedAt : null,
   };
@@ -248,12 +262,12 @@ async function upsertIn(db: Db, m: MaterialInput): Promise<MaterialResult> {
     const [inserted] = await db<{ id: string }[]>`
       INSERT INTO articles (id, source_id, identity_key, url, title, author, language, published_at, published_at_claim, publication_time,
         discovered_at, source_updated_at, timeline_at, backfill, backfill_reason, revision, content_hash, excerpt,
-        body_text, body_html, body_status, media, x_post, raw)
+        body_text, body_html, body_status, media, x_post, raw, asset_key)
       VALUES (${newId}, ${m.sourceId}, ${identityKey}, ${m.url}, ${title}, ${m.author ?? null}, ${m.language ?? null},
         ${t.publishedAt}, ${m.publishedAt ?? null}, ${m.publishedAt ? m.publicationTime === undefined ? m.publishedAt.toISOString() : m.publicationTime : null}, ${discoveredAt}, ${m.sourceUpdatedAt ?? null}, ${t.timelineAt},
         ${t.backfill}, ${t.backfillReason}, 1, ${hash}, ${m.excerpt ?? null}, ${m.bodyText ?? null}, ${m.bodyHtml ?? null},
         ${m.bodyStatus ?? (m.bodyText ? "ok" : "pending")}, ${db.json((m.media ?? []) as never)},
-        ${m.xPost ? db.json(m.xPost as never) : null}, ${m.raw === undefined ? null : db.json(m.raw as never)})
+        ${m.xPost ? db.json(m.xPost as never) : null}, ${m.raw === undefined ? null : db.json(m.raw as never)}, ${assetOf(m, title)})
       ON CONFLICT (identity_key) DO NOTHING RETURNING id`;
     if (inserted) {
       await db`INSERT INTO article_revisions (article_id, revision, content_hash, title, body_text)
@@ -327,7 +341,8 @@ async function upsertIn(db: Db, m: MaterialInput): Promise<MaterialResult> {
       body_text = coalesce(${m.bodyText ?? null}, body_text), body_html = coalesce(${m.bodyHtml ?? null}, body_html),
       body_status = CASE WHEN ${m.bodyText ?? null}::text IS NULL THEN body_status ELSE ${m.bodyStatus ?? "ok"} END,
       media = CASE WHEN ${media}::jsonb IS NULL THEN media ELSE ${media}::jsonb END,
-      x_post = coalesce(${m.xPost ? sql.json(m.xPost as never) : null}, x_post)`,
+      x_post = coalesce(${m.xPost ? sql.json(m.xPost as never) : null}, x_post),
+      asset_key = coalesce(${assetOf(m, title, existing!.body_text, existing!.excerpt)}, asset_key)`,
     hash: next, title, bodyText,
   });
   return { articleId: existing!.id, created: false, revised: true, backfill: time?.backfill ?? existing!.backfill };

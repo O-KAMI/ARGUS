@@ -311,6 +311,48 @@ test("a withdrawn item leaves the hot board and the hot APIs at once, not at the
   assert.ok(!(await get("/api/site/hot")).body.includes(publicId), "/api/site/hot still shows the event of the withdrawn item");
 });
 
+test("important announcements admit only selected first-party reports without changing heat or ranking", async () => {
+  const official = await article();
+  const officialStory = await storyFor(official);
+  await publishArticle(official, released());
+  const [story] = await sql<{ id: number }[]>`SELECT id FROM stories WHERE public_id = ${officialStory}`;
+  await sql`INSERT INTO story_signals (story_id, article_id, participant_key, source_id, kind, observed_at)
+            VALUES (${story!.id}, ${official}, ${`official-participant-${T}`}, ${SOURCE}, 'editorial', now() - interval '1 hour')`;
+
+  const secondary = `${SOURCE}-announcement-secondary`;
+  await sql`INSERT INTO sources (id, name, kind, tier, participation_mode, next_fetch_at)
+            VALUES (${secondary}, 'Test secondary', 'rss', 'T2', 'editorial', '2100-01-01')`;
+  const nonFirstParty = await article();
+  await sql`UPDATE articles SET source_id = ${secondary} WHERE id = ${nonFirstParty}`;
+  await publishArticle(nonFirstParty, released());
+
+  const unselected = await article();
+  await sql`UPDATE analyses SET selected = false WHERE article_id = ${unselected}`;
+  await publishArticle(unselected, released());
+
+  const withdrawn = await article();
+  await publishArticle(withdrawn, released());
+  await setVisibility(withdrawn, { visibility: 'withdrawn', reason: 'test announcement withdrawal', version: 0 }, 'test');
+
+  await computeHotRanking();
+  const rankingBefore = await latestHotRanking();
+  assert.ok(!rankingBefore?.entries.some((entry) => entry.storyPublicId === officialStory),
+    'one official participant is an announcement, not enough cross-source discussion for the hot board');
+
+  const response = await get('/api/site/hot');
+  assert.equal(response.status, 200);
+  const page = JSON.parse(response.body);
+  const announcement = page.announcements.find((item: { id: string }) => item.id === official);
+  assert.ok(announcement, 'a selected official report appears even without a cross-source hot entry');
+  for (const id of [nonFirstParty, unselected, withdrawn]) {
+    assert.ok(!page.announcements.some((item: { id: string }) => item.id === id), `${id} must not be an announcement`);
+  }
+  assert.equal(announcement.heat, undefined);
+  assert.equal(announcement.rank, undefined);
+  assert.deepEqual(await latestHotRanking(), rankingBefore, 'reading announcements leaves the stored ranking and heat untouched');
+  assert.ok(!page.entries.some((entry: { story: { publicId: string } }) => entry.story.publicId === officialStory));
+});
+
 test("item pages follow one rule: unsummarised editorial items keep one, hot_signal items have none", async () => {
   const SIGNAL = `${SOURCE}-signal`;
   await sql`INSERT INTO sources (id, name, kind, tier, participation_mode, site_fulltext, syndicate_fulltext, next_fetch_at)

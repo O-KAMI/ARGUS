@@ -1,7 +1,10 @@
 // First-party site API (/api/site/*). Not public, not versioned, never called /api/v2.
 // Reads through the same public read layer as v1; no cookies are read or set.
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { isCategoryKey, isChannelKey, type CategoryKey, type ChannelKey } from "@aihot/contracts/taxonomy";
+import {
+  isCategoryKey, isChannelKey, isFieldTag, isGenreTag, isPlatformKey,
+  type CategoryKey, type ChannelKey, type PlatformKey,
+} from "@aihot/contracts/taxonomy";
 import type { ReportIndexResponse, ReportLatestPage, ReportNavigationResponse, SearchSuggestions, SiteContact } from "@aihot/contracts/site";
 import { InvalidCursorError } from "@aihot/backend/lib/cursor";
 import { exportMarkdown, loadItemDetail } from "@aihot/backend/publication/detail";
@@ -45,6 +48,9 @@ export interface FilterParams {
   channel: ChannelKey;
   category: CategoryKey | null;
   tag: string | null;
+  genre: string | null;
+  field: string | null;
+  platform: PlatformKey;
 }
 
 export function parseFilters(q: Record<string, string>): FilterParams {
@@ -53,7 +59,13 @@ export function parseFilters(q: Record<string, string>): FilterParams {
   const category = q.category ?? null;
   if (category !== null && !isCategoryKey(category)) throw new BadRequest("invalid category");
   const tag = q.tag?.trim() ? q.tag.trim().slice(0, 60) : null;
-  return { channel, category: category as CategoryKey | null, tag };
+  const genre = q.genre?.trim() || null;
+  if (genre !== null && !isGenreTag(genre)) throw new BadRequest("invalid genre");
+  const field = q.field?.trim() || null;
+  if (field !== null && !isFieldTag(field)) throw new BadRequest("invalid field");
+  const platform = q.platform ?? "all";
+  if (!isPlatformKey(platform)) throw new BadRequest("invalid platform");
+  return { channel, category: category as CategoryKey | null, tag, genre, field, platform };
 }
 
 export function registerSite(app: FastifyInstance) {
@@ -65,7 +77,8 @@ export function registerSite(app: FastifyInstance) {
     const q = looseQuery(req);
     const filters = parseFilters(q);
     const limit = Math.min(Math.max(Number(q.limit) || 20, 1), 40);
-    const unfiltered = filters.channel === "all" && !filters.category && !filters.tag && !q.cursor;
+    const unfiltered = filters.channel === "all" && !filters.category && !filters.tag
+      && !filters.genre && !filters.field && filters.platform === "all" && !q.cursor;
     const [data, hot] = await Promise.all([
       loadTimeline({ ...filters, cursor: q.cursor || null, limit }),
       unfiltered ? loadHotStrip() : null,

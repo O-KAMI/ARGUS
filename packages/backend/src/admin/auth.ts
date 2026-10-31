@@ -113,7 +113,7 @@ export function loginRedirect(returnTo: string): { url: string; stateCookie: str
   return { url, stateCookie: sign(state) };
 }
 
-/** Only admin paths on this site; anything else (other hosts, protocol-relative) falls back to /admin. */
+/** Only same-site reader paths; other hosts, protocol-relative targets and the api fall back to the home page. */
 export function safeReturn(target: string): string {
   let path = target;
   // A proxy's login redirect may pass the whole original URL; keep only its path and query.
@@ -125,7 +125,8 @@ export function safeReturn(target: string): string {
       return "/admin";
     }
   }
-  return /^\/admin(\/|\?|$)/.test(path) && !path.startsWith("//") ? path : "/admin";
+  if (!/^\/(?!\/)/.test(path) || /^\/api(?:\/|$)/.test(path) || path.length > 2000) return "/admin";
+  return path;
 }
 
 interface FeishuUser {

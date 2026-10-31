@@ -9,6 +9,10 @@ export const GOLD_DECISIONS = ["select", "reject", "either"] as const;
 export type SelectionGoldDecision = (typeof GOLD_DECISIONS)[number];
 export type SelectionDecision = Exclude<SelectionGoldDecision, "either">;
 
+/** The track a case is judged on: the value trackOf(sources.tags) gives (industry/selection.ts). */
+export const GOLD_TRACKS = ["learning", "news", "inherit"] as const;
+export type SelectionGoldTrack = (typeof GOLD_TRACKS)[number];
+
 const GoldRow = z.object({
   caseId: nonEmpty,
   material: z.object({
@@ -24,6 +28,9 @@ const GoldRow = z.object({
     sourceTier: nullableString.transform((value) => value ?? undefined),
     firstParty: z.boolean().optional(),
     language: nullableString,
+    // A file written by hand before the tracks existed describes news-track material; the labels the
+    // admin exports always name their track.
+    track: z.enum(GOLD_TRACKS).optional().transform((value) => value ?? "news"),
   }),
   samplingContext: SamplingContext.optional(),
   gold: z.object({ decision: z.enum(GOLD_DECISIONS) }),
@@ -32,6 +39,14 @@ export type SelectionGoldRow = z.infer<typeof GoldRow>;
 
 /** Validate the entire gold set before filtering or sending any model requests. */
 export const parseSelectionGoldJsonl = (text: string): SelectionGoldRow[] => parseCasesJsonl(text, GoldRow);
+
+/**
+ * The key one run shares a score response under. The tracks ask with different wordings
+ * (selection-score.md and selection-score-learning.md) and expect different answers, while
+ * buildScoreInput renders the material alone: keyed on the material only, the same case on two tracks
+ * would reuse one response and be scored by the other track's standard.
+ */
+export const scoreCacheKey = (track: SelectionGoldTrack, scoreInput: string): string => `${track}\0${scoreInput}`;
 
 export interface SelectionMetricCase {
   gold: SelectionGoldDecision;
@@ -80,7 +95,7 @@ export interface SelectionThresholdCase {
   scores: AnalysisRun["scores"];
 }
 
-/** The decisions had every case been held against `threshold` instead of its source tier's. */
+/** The decisions had every case been held against `threshold` instead of the one its track gives it. */
 export function selectionThresholdMetrics(cases: SelectionThresholdCase[], threshold: number) {
   const metrics = selectionMetrics(cases.map((row) => ({
     gold: row.gold,
@@ -95,6 +110,9 @@ export function selectionThresholdMetrics(cases: SelectionThresholdCase[], thres
     R: metrics.recall,
     F1: metrics.f1,
     sel: metrics.selectedRate,
+    // Where the sweep is read: the threshold is fixed where a false 精选 stops costing more than a miss.
+    fp: metrics.fp,
+    fn: metrics.fn,
     decisive: metrics.decisive,
     decisiveGold: metrics.decisiveGold,
     decisiveErrors: metrics.decisiveErrors,
