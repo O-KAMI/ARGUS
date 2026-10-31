@@ -12,6 +12,8 @@ export const OUTBOUND_HTTP_OPTIONS = { allowH2: false } as const;
 type Resolve = (hostname: string) => Promise<string[]>;
 type ConnectOptions<T> = Omit<Dispatcher.ConnectOptions<T>, "origin">;
 type ConnectCallback<T> = (error: Error | null, data: Dispatcher.ConnectData<T>) => void;
+/** CONNECT options as undici actually sends them: it rides the proxy's own TLS ServerName along undeclared. */
+type ProxyConnectOptions<T> = ConnectOptions<T> & { servername?: string };
 
 class PinnedProxyClient extends Client {
   private readonly resolve: Resolve;
@@ -37,7 +39,16 @@ class PinnedProxyClient extends Client {
     // Only the CONNECT authority changes: ProxyAgent still uses the original host for TLS/SNI and
     // the HTTP Host header. The proxy never resolves the untrusted hostname a second time.
     const authority = `${net.isIP(address) === 6 ? `[${address}]` : address}:${target.port || 80}`;
-    return super.connect({ ...options, path: authority, headers: { ...options.headers, host: authority } });
+    // The servername here is the proxy's own, not the destination's: ProxyAgent fills the endpoint SNI in
+    // afterwards. undici passes the proxy hostname straight through, and Node refuses an IP address as a
+    // TLS ServerName (RFC 6066), so a proxy addressed by IP would be unreachable over https. Dropping the
+    // value leaves the connector with no SNI and the certificate is checked against its IP SAN instead.
+    const servername = (options as ProxyConnectOptions<T>).servername;
+    const connect: ProxyConnectOptions<T> = {
+      ...options, path: authority, headers: { ...options.headers, host: authority },
+      servername: servername && !net.isIP(servername) ? servername : undefined,
+    };
+    return super.connect(connect);
   }
 }
 
