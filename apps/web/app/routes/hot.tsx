@@ -124,7 +124,7 @@ function Lead({ e }: { e: HotEntryView }) {
   return (
     <article className="card card-hover group relative flex flex-col overflow-hidden p-5 sm:p-6">
       <div className="flex items-center gap-2.5">
-        <span className={`mono text-[12px] font-bold tracking-[0.16em] ${rankColor(e.rank)}`}>NO.{pad(e.rank)}</span>
+        <span className={`mono text-[12px] font-bold tracking-[0.16em] ${rankColor(e.rank)}`} aria-label={`热度排名第 ${e.rank} 位`}>NO.{pad(e.rank)}</span>
         <Badges e={e} />
         <Delta trend={e.trend} pct={e.trendPct} className="ml-auto" />
       </div>
@@ -176,7 +176,7 @@ function Runner({ e }: { e: HotEntryView }) {
   return (
     <article className="card card-hover group relative flex flex-col px-5 py-4">
       <div className="flex items-center gap-2.5">
-        <span className={`mono text-[12px] font-bold tracking-[0.16em] ${rankColor(e.rank)}`}>NO.{pad(e.rank)}</span>
+        <span className={`mono text-[12px] font-bold tracking-[0.16em] ${rankColor(e.rank)}`} aria-label={`热度排名第 ${e.rank} 位`}>NO.{pad(e.rank)}</span>
         <Badges e={e} />
         <Delta trend={e.trend} pct={e.trendPct} className="ml-auto" />
       </div>
