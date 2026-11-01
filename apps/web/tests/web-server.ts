@@ -68,7 +68,8 @@ export async function startWebServer(api: Server, env: NodeJS.ProcessEnv = {}): 
   await once(api, "listening");
   let logs = "";
   const web = spawn(process.execPath, [fileURLToPath(new URL("../server.ts", import.meta.url))], {
-    env: { ...process.env, WEB_PORT: "0", SITE_URL: "http://127.0.0.1:0", TRUST_PROXY: "false", API_BASE_URL: `http://127.0.0.1:${(api.address() as AddressInfo).port}`, ...env },
+    // server.ts defaults PRIVATE_ACCESS to "true", and a private server will not even boot without INTERNAL_TOKEN.
+    env: { ...process.env, WEB_PORT: "0", SITE_URL: "http://127.0.0.1:0", TRUST_PROXY: "false", PRIVATE_ACCESS: "false", API_BASE_URL: `http://127.0.0.1:${(api.address() as AddressInfo).port}`, ...env },
     stdio: ["ignore", "pipe", "pipe"],
   });
   const stop = async () => {
