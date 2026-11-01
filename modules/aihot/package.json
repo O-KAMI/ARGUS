@@ -1,0 +1,16 @@
+{
+  "name": "@aihot/aihot",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    "./module": "./module.ts",
+    "./server": "./server.ts",
+    "./*": "./*.ts"
+  },
+  "dependencies": {
+    "@aihot/backend": "*",
+    "@aihot/contracts": "*",
+    "@aihot/industry": "*"
+  }
+}

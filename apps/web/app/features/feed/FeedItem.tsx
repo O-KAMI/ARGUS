@@ -5,7 +5,7 @@ import { memo } from "react";
 import { Link } from "react-router";
 import { IntentLink } from "../../components/ui/IntentLink";
 import type { GroupInfo, FeedItemSummary, TimelineFilters } from "@aihot/contracts/site";
-import { CATEGORY_LABELS } from "@aihot/contracts/taxonomy";
+import { CATEGORY_LABELS, isMirrored } from "@aihot/contracts/taxonomy";
 import { ITEM_COPY } from "@aihot/site";
 import { SameEventBadge, SelectedBadge } from "../../components/ui/Badge";
 import { ScoreLabel } from "../../components/ui/Score";
@@ -29,6 +29,7 @@ export interface FeedItemProps {
 
 export const FeedItem = memo(function FeedItem({ item, group, filters, read = false, onOpen, showTags = false, at }: FeedItemProps) {
   const isX = item.channel === "x" && !!item.x;
+  const mirrored = isMirrored(item.platform);
   const open = () => {
     rememberPreview(item);
     onOpen?.(item.id);
@@ -53,10 +54,10 @@ export const FeedItem = memo(function FeedItem({ item, group, filters, read = fa
         <span className="ml-auto flex shrink-0 items-center gap-1 pl-2 lg:gap-1.5">
           <OriginalLink item={item} className="-my-[11px] size-11 lg:-my-1 lg:size-[26px]" />
           <span className="hidden lg:inline-flex">
-            <ScoreLabel score={item.score} />
+            <ScoreLabel score={item.score} mirror={mirrored} />
           </span>
           <span className="lg:hidden">
-            <ScoreLabel score={item.score} compact />
+            <ScoreLabel score={item.score} compact mirror={mirrored} />
           </span>
           <span className="-my-[11px] -mr-3 inline-flex lg:-my-1 lg:mr-0">
             <StarButton item={item} className="size-11 lg:size-[26px]" />

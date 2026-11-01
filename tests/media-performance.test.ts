@@ -167,7 +167,7 @@ test("feed cards project the first valid article cover and null without media", 
   const at = new Date("2026-10-04T08:00:00Z");
   const row = {
     id: "cover", title: "封面", original_title: null, summary: "摘要", reason: null,
-    category: null, tags: [], score: null, selected: false, channel: "news", body_mode: "full",
+    category: null, tags: [], score: null, selected: false, channel: "news", platform: "web", body_mode: "full",
     url: "https://example.org/story", published_at: null, discovered_at: at, timeline_at: at,
     seat: false, visibility: "public", indexable: true, fact_id: null,
     source_name: "Fixture", source_mode: "editorial", x_post: null,

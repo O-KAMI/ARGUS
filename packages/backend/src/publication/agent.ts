@@ -105,20 +105,30 @@ type HotTopics = Awaited<ReturnType<typeof v1HotTopics>>;
 export function hotAnswer(res: HotTopics, limit: number, via: Via): string {
   const items = res.items.slice(0, limit);
   if (!items.length) return answer([`# ${SITE.name} 当前热点`, "", "热点榜暂时是空的。"], null, ["如实告诉用户暂时没有热点，可以改看最新精选。"]);
+  // A ranking this site mirrors from another catalogue has no event pages of its own, so there is no
+  // public_id to hand over, and its names are served as the catalogue answered them: this site's own
+  // naming rules (publicSourceName) must not rewrite somebody else's words.
+  const mirrored = items.every((t) => t.links.story === undefined);
   const data = items.flatMap((t) => {
-    const publicId = t.links.story.split("/").pop()!;
-    const sources = [...new Set(t.sourceNames.map(publicSourceName))];
+    const publicId = t.links.story?.split("/").pop() ?? null;
+    const sources = [...new Set(t.sourceNames.map((name) => (mirrored ? name : publicSourceName(name))))];
     const names = sources.length > 6 ? `${sources.slice(0, 6).join("、")} 等` : sources.join("、");
     return [
       `第 ${t.rank} 名：[${linkText(t.title)}](${t.links.aihot})`,
       `   信源：${names}（${t.sourceCount} 个）· 最新进展 ${stamp(t.latestAt)}`,
-      via === "http" ? `   来龙去脉：${agentUrl(`/stories/${publicId}`)}` : `   来龙去脉：${T.story}，public_id=${publicId}`,
+      publicId
+        ? via === "http" ? `   来龙去脉：${agentUrl(`/stories/${publicId}`)}` : `   来龙去脉：${T.story}，public_id=${publicId}`
+        : `   原文：${t.links.original}`,
       "",
     ];
   });
-  return answer([`# ${SITE.name} 当前热点 Top ${items.length}`, "", "多个独立信源正在同时讨论的事件，按名次排列；时间为北京时间。"], data, [
+  return answer([`# ${SITE.name} 当前热点 Top ${items.length}`, "", mirrored
+    ? `照读一个公开行业目录自己算出的热点榜，按名次排列；名次和信源都不是 ${SITE.name} 判定的，时间为北京时间。`
+    : "多个独立信源正在同时讨论的事件，按名次排列；时间为北京时间。"], data, [
     "按名次完整列出，写「第 N 名」；不要说热度分数，也不要把信源数量说成热度。",
-    via === "http" ? "用户追问某个事件的来龙去脉、时间线或最新进展时，请求它的「来龙去脉」地址；不要自己拼地址。" : `用户追问某个事件的来龙去脉、时间线或最新进展时，用 ${T.story} 和上面给出的 public_id；不要猜。`,
+    ...(mirrored
+      ? [`这一榜是镜像来的：${SITE.name} 没有这些事件的页面，也没有 public_id，不要用 ${T.story} 去查，更不要自己拼一个 id。用户追问某一条时，给出上面列出的原文地址，并说明这一榜不是 ${SITE.name} 自己算的。`]
+      : [via === "http" ? "用户追问某个事件的来龙去脉、时间线或最新进展时，请求它的「来龙去脉」地址；不要自己拼地址。" : `用户追问某个事件的来龙去脉、时间线或最新进展时，用 ${T.story} 和上面给出的 public_id；不要猜。`]),
     NO_INTERNALS,
   ]);
 }

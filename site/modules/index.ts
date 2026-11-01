@@ -2,6 +2,7 @@
 // it has an entry for: here for its addresses (module.ts), in server.ts for its backend, in web.ts for its
 // pages' parts. Each list keeps the order its entries appear in on the site.
 import type { ModuleDeclaration } from "@aihot/contracts/modules";
+import aihot from "@aihot/aihot/module";
 import github from "@aihot/github/module";
 
-export const MODULES: readonly ModuleDeclaration[] = [github];
+export const MODULES: readonly ModuleDeclaration[] = [aihot, github];

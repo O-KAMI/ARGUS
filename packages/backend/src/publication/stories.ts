@@ -1,6 +1,6 @@
 // Stories (events) and the hot ranking through the public read layer. The website sees heat values;
 // v1 and MCP only see ranks and counts.
-import type { HeatPoint, HotResponse, StoryDetail, StoryReportView } from "@aihot/contracts/site";
+import type { HeatPoint, HotEntryView, HotResponse, StoryDetail, StoryReportView } from "@aihot/contracts/site";
 import { SITE } from "@aihot/site";
 import { sql } from "../db.ts";
 import { shared } from "../lib/cache.ts";
@@ -10,10 +10,10 @@ import { relatedEvidence, RELATED_MIN_REPORTS } from "../events/related.ts";
 import { pickRepresentative, REPRESENTATIVE_COLUMNS, type RepresentativeIdentity } from "./representative.ts";
 import { compositeCondition, evidenceCondition, listedCondition, storyReportCondition } from "./scope.ts";
 import { publicSourceName } from "./rules.ts";
-import { latestHotRanking, loadImportantAnnouncements, rankingExtras } from "./hot.ts";
+import { latestHotRanking, loadImportantAnnouncements, publishedHot, rankingExtras } from "./hot.ts";
 import { storyTexts } from "./story-text.ts";
 import { topicsOfStory } from "./topics.ts";
-import { itemUrl, storyUrl, v1StoryApiUrl, v1StoryUrl } from "./links.ts";
+import { itemUrl, siteUrl, storyUrl, v1StoryApiUrl, v1StoryUrl } from "./links.ts";
 
 export type StoryLookup = { kind: "found"; storyId: number; publicId: string } | { kind: "merged"; target: string } | { kind: "not_found" };
 
@@ -240,8 +240,44 @@ async function queryHotCovers({ entries }: HotRanking) {
   return covers;
 }
 
+/** A card excerpt: the card clips its text to a few lines, and complete public words belong to a page. */
+function cardSummary(text: string | null): string | null {
+  if (!text) return text;
+  const chars = Array.from(text);
+  return chars.length > 480 ? `${chars.slice(0, 480).join("")}…` : text;
+}
+
 export async function loadHot(): Promise<HotResponse> {
-  const [ranking, announcements] = await Promise.all([latestHotRanking(), loadImportantAnnouncements()]);
+  const [mirror, announcements] = await Promise.all([publishedHot(), loadImportantAnnouncements()]);
+  // A ranking a module keeps is served as it was read: its own order, numbers and words, nothing renamed
+  // and nothing recomputed, beside this site's own announcements — those are first-party, and they are
+  // part of no ranking, this site's or anybody else's.
+  if (mirror) {
+    return {
+      computedAt: mirror.computedAt,
+      windowHours: mirror.windowHours,
+      announcements,
+      mirror: mirror.mirror,
+      entries: mirror.entries.map((e): HotEntryView => ({
+        rank: e.rank,
+        story: e.story,
+        heat: e.heat,
+        trend: e.trend,
+        trendPct: e.trendPct,
+        badges: e.badges,
+        participantCount: e.participantCount,
+        sourceCount: e.sourceCount,
+        sourceNames: e.sourceNames,
+        participants: e.participants,
+        spark: e.spark,
+        summary: cardSummary(e.summary),
+        latest: e.latest,
+        cover: e.cover,
+        link: e.link,
+      })),
+    };
+  }
+  const ranking = await latestHotRanking();
   if (!ranking) return { computedAt: null, windowHours: 48, entries: [], announcements };
   const at = new Date(ranking.computedAt);
   const [sparks, covers, extras] = await Promise.all([
@@ -260,8 +296,6 @@ export async function loadHot(): Promise<HotResponse> {
       const picture = covers.get(e.storyId);
       const coverUrl = picture ? proxiedImage(picture.url, "full") : null;
       const text = extras.text(e);
-      // The card clips its text to a few lines; complete public words belong to the event page.
-      const summary = text.summary ? Array.from(text.summary) : null;
       return {
         rank: e.rank,
         story: { publicId: e.storyPublicId, title: e.title },
@@ -274,7 +308,7 @@ export async function loadHot(): Promise<HotResponse> {
         sourceNames: [...new Set(e.sourceNames.map(publicSourceName))],
         participants: extras.participants(e),
         spark: sparks.get(e.storyId) ?? [],
-        summary: summary && summary.length > 480 ? summary.slice(0, 480).join('') + '…' : text.summary,
+        summary: cardSummary(text.summary),
         latest: text.latest,
         cover: picture && coverUrl ? { url: coverUrl, srcSet: proxiedImageSet(picture.url, "hero") ?? undefined, width: picture.width, height: picture.height } : null,
       };
@@ -284,7 +318,55 @@ export async function loadHot(): Promise<HotResponse> {
 
 // v1 shapes (ranks and counts only; no heat values)
 
-export async function v1HotTopics() {
+/**
+ * One row of the machine hot-topics answer (site/public/openapi-v1.json `HotTopic`). `links.story` is the
+ * event page; it is absent — never null — for an entry this site mirrors rather than computed from its own
+ * evidence, because such an entry has no event page here and the spec tells a reader not to invent an id.
+ */
+export interface V1HotTopic {
+  rank: number;
+  id: string;
+  title: string;
+  source: { name: string };
+  links: { aihot: string; original: string; story?: string };
+  sourceCount: number;
+  signalCount: number;
+  participantCount: number;
+  sourceNames: string[];
+  latestAt: string;
+}
+
+export interface V1HotTopics {
+  schemaVersion: 1;
+  count: number;
+  items: V1HotTopic[];
+}
+
+export async function v1HotTopics(): Promise<V1HotTopics> {
+  const mirror = await publishedHot();
+  if (mirror) {
+    // The same ranking the website shows, in the machine shape: ranks, counts and the publisher's own
+    // address, no heat values. A mirrored entry has no event page here, so it carries no links.story at all
+    // (the spec's own words: do not construct a story id when absent), and its id is this site's report when
+    // it has one, else the catalogue's event id — which resolves nowhere here, so links.original is the
+    // address worth following.
+    const items = mirror.entries.map((e): V1HotTopic => {
+      const own = e.itemId ? itemUrl(e.itemId) : siteUrl("/hot");
+      return {
+        rank: e.rank,
+        id: e.itemId ?? e.story.publicId,
+        title: e.story.title,
+        source: { name: e.representativeSource ?? e.sourceNames[0] ?? SITE.name },
+        links: { aihot: own, original: e.representativeUrl ?? own },
+        sourceCount: e.sourceCount,
+        signalCount: e.signalCount,
+        participantCount: e.participantCount,
+        sourceNames: e.sourceNames,
+        latestAt: e.latestAt,
+      };
+    });
+    return { schemaVersion: 1, count: items.length, items };
+  }
   const ranking = await latestHotRanking();
   const items = (ranking?.entries ?? []).map((e) => {
     const links = {

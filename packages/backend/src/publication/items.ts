@@ -1,6 +1,6 @@
 // Public read layer, item level. Every exit (site API, v1, RSS, MCP, sitemap) reads
 // items through these columns and views; which rows are public is decided by scope.ts.
-import { CATEGORY_KEYS, toPublicApiCategory, type CategoryKey, type ChannelKey, type PlatformKey, type PublicApiCategoryKey } from "@aihot/contracts/taxonomy";
+import { CATEGORY_KEYS, isPlatformKey, toPublicApiCategory, type CategoryKey, type ChannelKey, type PlatformKey, type PublicApiCategoryKey } from "@aihot/contracts/taxonomy";
 import type { FeedItemSummary, ItemSummary, MediaView, XPostView } from "@aihot/contracts/site";
 import { POLICY } from "@aihot/site";
 import { sql, type Db } from "../db.ts";
@@ -22,6 +22,8 @@ export interface ItemRow {
   score: number | null;
   selected: boolean;
   channel: "news" | "x";
+  /** The platform publishing decided (rules.platformOf); null on a row published before the column existed. */
+  platform: string | null;
   url: string;
   published_at: Date | null;
   discovered_at: Date;
@@ -51,7 +53,7 @@ export interface ItemRow {
 /** Columns every item listing selects. Internal judgement details never leave this layer. */
 export const ITEM_COLUMNS = sql`
   p.article_id AS id, p.title, p.original_title, p.summary, p.reason, p.category, p.tags, p.score,
-  p.selected, p.seat, p.channel, p.url, p.published_at, p.discovered_at, p.timeline_at, p.visibility,
+  p.selected, p.seat, p.channel, p.platform, p.url, p.published_at, p.discovered_at, p.timeline_at, p.visibility,
   p.body_mode, p.indexable, p.fact_id, s.name AS source_name, s.participation_mode AS source_mode,
   a.x_post, a.media AS media, a.author, a.language,
   CASE WHEN s.kind = 'x_search' AND ${sourceOwnsPost(sql`s.config`, sql`a.x_post->>'handle'`)} THEN s.icon_url END AS author_avatar_url,
@@ -180,6 +182,7 @@ export function toItemSummary(row: ItemRow): ItemSummary {
     score: row.score === null ? null : Math.round(Number(row.score)),
     selected: row.selected,
     channel: row.channel,
+    platform: isPlatformKey(row.platform) ? row.platform : null,
     story: row.story_public_id ? { publicId: row.story_public_id, title: row.story_title ?? "" } : null,
   };
 }
@@ -195,6 +198,7 @@ export function toFeedItemSummary(row: ItemRow): FeedItemSummary {
     id: item.id, title: item.title, summary: item.summary ?? (x?.text || null), reason: item.reason,
     source: item.source, links: item.links, publishedAt: item.publishedAt, timelineAt: item.timelineAt,
     category: item.category, tags: item.tags, score: item.score, selected: item.selected, channel: item.channel,
+    ...(item.platform ? { platform: item.platform } : {}),
     cover,
     x: x ? {
       authorName: x.authorName, handle: x.handle, avatarUrl: x.avatarUrl,

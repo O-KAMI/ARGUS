@@ -136,5 +136,14 @@ export function isPlatformKey(value: unknown): value is PlatformKey {
   return typeof value === "string" && (PLATFORM_KEYS as readonly string[]).includes(value);
 }
 
+/**
+ * A report the site mirrors from another catalogue: its Chinese copy, its score and its selection are the
+ * catalogue's own, and no model of this site was called for it. A surface says 镜像评分 and 摘要 rather
+ * than claiming this site's model wrote them.
+ */
+export function isMirrored(platform: PlatformKey | null | undefined): boolean {
+  return platform === "aihot";
+}
+
 /** Article ids. Also the local-data import validation pattern. */
 export const ARTICLE_ID_PATTERN = /^[a-zA-Z0-9_-]{1,80}$/;

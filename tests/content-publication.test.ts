@@ -380,7 +380,7 @@ test("hot exits date latest progress by current event evidence after a withdrawa
   await computeHotRanking(new Date());
   for (const hours of [2, 4]) {
     const detail = (await loadStoryDetail(g.storyId, now))!;
-    const hot = (await v1HotTopics()).items.find((entry) => entry.links.story.endsWith(g.storyPublicId))!;
+    const hot = (await v1HotTopics()).items.find((entry) => entry.links.story?.endsWith(g.storyPublicId))!;
     const common = (await latestHotRanking())!.entries.find((entry) => entry.storyId === g.storyId)!;
     assert.equal(detail.latestAt, at(hours).toISOString());
     assert.equal(hot.latestAt, detail.latestAt);

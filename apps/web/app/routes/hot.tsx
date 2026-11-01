@@ -1,4 +1,5 @@
 import { useLoaderData } from "react-router";
+import type { Route } from "./+types/hot";
 import { IntentLink } from "../components/ui/IntentLink";
 import type { HotEntryView, HotResponse, ImportantAnnouncement } from "@aihot/contracts/site";
 import { subjectAfter, withSubject } from "@aihot/site";
@@ -11,6 +12,7 @@ import { EmptyState } from "../components/ui/Page";
 import { IconChevronDown, IconInfo } from "../components/icons";
 import { Sparkline } from "../features/hot/Sparkline";
 import { OriginalLink } from "../features/feed/parts";
+import { EntryLink } from "../features/hot/EntryLink";
 import { Faces } from "../features/hot/Faces";
 import { Delta } from "../features/hot/Delta";
 import { PhoneBar } from "../components/shell/PhoneBar";
@@ -26,19 +28,29 @@ export async function loader({ request }: { request: Request }) {
   return cachedPage(120, { hot: await loadOr404<HotResponse>("/api/site/hot", { signal: request.signal }) });
 }
 
-export function meta() {
+export function meta({ loaderData }: Route.MetaArgs) {
+  // A mirrored ranking is not this site's own measure, so the description must not claim it as one.
+  const mirror = loaderData?.hot.mirror;
   return pageMeta({
     title: withSubject("热点榜"),
-    description: `${subjectAfter("过去 48 小时", "圈")}跨源讨论热度，以及一手官方发布与关注账号近三天转述的重要公告。`,
+    description: mirror
+      ? `${mirror.label}：照读一个公开行业目录过去 48 小时的热点榜，顺序、热度与文案按读到的原样呈现，本站不重算；另附一手官方发布与关注账号近三天转述的重要公告。`
+      : `${subjectAfter("过去 48 小时", "圈")}跨源讨论热度，以及一手官方发布与关注账号近三天转述的重要公告。`,
     path: "/hot",
     image: "/og/pages/hot.png",
   });
 }
 
-const BADGES: Record<HotEntryView["badges"][number], { label: string; tone: "hot" | "accent" | "amber"; hint: string }> = {
-  surge: { label: "爆", tone: "hot", hint: "讨论快速增加" },
-  new: { label: "新", tone: "accent", hint: "首报 6 小时内" },
-  rising: { label: "发酵中", tone: "amber", hint: "讨论仍在增加" },
+/**
+ * The corner marks. `hint` is the neutral phrase both readings share, and it is what the badge's tooltip
+ * says; `own` is what the mark means when the ranking is this site's own, stated in the disclosure at the
+ * foot of the page — a mirrored ranking carries upstream's marks, and this site does not know their rule
+ * precisely enough to state one, so the disclosure names them as upstream's instead.
+ */
+const BADGES: Record<HotEntryView["badges"][number], { label: string; tone: "hot" | "accent" | "amber"; hint: string; own: string }> = {
+  surge: { label: "爆", tone: "hot", hint: "讨论快速增加", own: "讨论量在短时间内快速增加" },
+  new: { label: "新", tone: "accent", hint: "新上榜", own: "首报 6 小时内" },
+  rising: { label: "发酵中", tone: "amber", hint: "讨论仍在增加", own: "讨论仍在增加" },
 };
 
 const RANK_COLOR = ["text-rank-1", "text-rank-2", "text-rank-3"];
@@ -71,12 +83,12 @@ function Badges({ e }: { e: HotEntryView }) {
   ));
 }
 
-/** The whole card opens the event; the title carries the link and stretches over the card. */
+/** The whole card opens the entry; the title carries the link and stretches over the card. */
 function StoryLink({ e, className }: { e: HotEntryView; className: string }) {
   return (
-    <IntentLink viewTransition to={`/story/${e.story.publicId}`} className={`transition-colors after:absolute after:inset-0 after:content-[''] ${className}`}>
+    <EntryLink e={e} className={`transition-colors after:absolute after:inset-0 after:content-[''] ${className}`}>
       {e.story.title}
-    </IntentLink>
+    </EntryLink>
   );
 }
 
@@ -275,6 +287,11 @@ export default function HotPage() {
   const [lead, ...rest] = hot.entries;
   const runners = rest.slice(0, 2);
   const others = rest.slice(2);
+  // A mirrored ranking is a reading of somebody else's, so the page says so in its own words and never
+  // claims the order or the numbers as this site's own measure.
+  const mirror = hot.mirror ?? null;
+  const count = hot.entries.length || 10;
+  const scope = mirror ? `${mirror.label} · 照读上游公开榜单` : "跨源讨论热度";
   return (
     <div className="pb-10">
       <PhoneBar
@@ -282,7 +299,7 @@ export default function HotPage() {
         large
         sub={
           <>
-            跨源讨论热度 · 过去 {hot.windowHours}{`${subjectAfter(" 小时", "圈")}讨论最多的 `}{hot.entries.length || 10} 件事
+            {scope} · 过去 {hot.windowHours}{mirror ? " 小时" : subjectAfter(" 小时", "圈")}讨论最多的 {count} 件事
             {hot.computedAt && (
               <>
                 {" · "}
@@ -293,7 +310,7 @@ export default function HotPage() {
         }
         actions={
           <button type="button" onClick={showMethod} className="flex h-11 items-center gap-1 px-3 text-[14px] text-accent active:opacity-50">
-            <IconInfo size={17} /> 怎么算
+            <IconInfo size={17} /> {mirror ? "榜单说明" : "怎么算"}
           </button>
         }
       />
@@ -301,17 +318,40 @@ export default function HotPage() {
         <div>
           <div className="flex items-center gap-2 text-[12px] font-semibold tracking-[0.08em] text-hot">
             <span className="size-2 rounded-full bg-hot" aria-hidden="true" />
-            跨源讨论热度
+            {mirror ? mirror.label : "跨源讨论热度"}
           </div>
           <h1 className="mt-1.5 text-[24px] font-bold leading-[1.3] tracking-[-0.01em] text-ink lg:text-[26px]">{withSubject("热点榜")}</h1>
-          <p className="mt-1.5 text-[13.5px] text-ink-3">跨源讨论热度 · 过去 {hot.windowHours}{` 小时，${withSubject("圈")}讨论最多的 `}{hot.entries.length || 10} 件事</p>
+          <p className="mt-1.5 text-[13.5px] text-ink-3">
+            {mirror
+              ? `${scope} · 过去 ${hot.windowHours} 小时讨论最多的 ${count} 件事`
+              : `跨源讨论热度 · 过去 ${hot.windowHours}${` 小时，${withSubject("圈")}讨论最多的 `}${count} 件事`}
+          </p>
+          {mirror && (
+            <p className="mt-1.5 max-w-[720px] text-[12.5px] leading-relaxed text-ink-4">
+              顺序、热度、走势与摘要都按读到的原样呈现，本站不重算也不改写；{mirror.pace}。原始榜单在
+              <a href={mirror.url} target="_blank" rel="noopener noreferrer" className="mx-0.5 text-ink-3 underline decoration-line-strong underline-offset-2 transition-colors hover:text-accent">
+                这里
+              </a>
+              ，可以对照。
+            </p>
+          )}
         </div>
         {hot.computedAt && (
           <p className="text-[12px] text-ink-4">
-            <span className="num">{monthDayTime(hot.computedAt)}</span> 更新 · 按讨论热度排序
+            <span className="num">{monthDayTime(hot.computedAt)}</span> 更新 · {mirror ? "按上游热度排序" : "按讨论热度排序"}
           </p>
         )}
       </header>
+
+      {mirror && (
+        <p className="mb-4 text-[12.5px] leading-relaxed text-ink-4 lg:hidden">
+          {scope}：顺序、热度与摘要按读到的原样呈现，本站不重算；{mirror.pace}。原始榜单在
+          <a href={mirror.url} target="_blank" rel="noopener noreferrer" className="mx-0.5 text-ink-3 underline decoration-line-strong underline-offset-2">
+            这里
+          </a>
+          。
+        </p>
+      )}
 
       {!lead ? (
         <div className="card rounded-sheet">
@@ -353,7 +393,7 @@ export default function HotPage() {
       <details id="hot-method" className="disclosure group/method mt-8 scroll-mt-[calc(var(--bar-h)+16px)] text-[12px] text-ink-4">
         <summary className="flex items-center gap-1.5 py-1 transition-colors hover:text-ink-2">
           <IconInfo size={15} />
-          热度是怎么算的？
+          {mirror ? "这一榜是怎么来的？" : "热度是怎么算的？"}
           <span className="ml-auto inline-flex items-center gap-0.5">
             <span className="group-open/method:hidden">了解榜单</span>
             <span className="hidden group-open/method:inline">收起</span>
@@ -361,19 +401,36 @@ export default function HotPage() {
           </span>
         </summary>
         <div className="max-w-[760px] space-y-2 pb-2 pl-[21px] pt-2 leading-[1.75] text-ink-3">
-          <p>热点榜按跨源讨论热度排序；重要公告列的是一手官方发布，加上本站关注账号近三天里转述的公告，按发布时间排列，不参与排名，也没有热度值。</p>
-          <p>热度看的是有多少账号和机构在讨论同一件事：同一家重复发只算一次，越近的讨论分量越重，每过 24 小时减半。它反映讨论有多热闹，不代表报道质量。</p>
-          <p>榜单只看过去 48 小时。走势只拿同一批一直在看的来源比较，反映的是我们看得到的范围，不代表全网人数；没有可比的历史时，不画走势线。</p>
-          <p>
-            来源名单只列能公开阅读的报道；参与讨论的还有一些不在名单里展示的账号和机构。同一家机构在不同平台发帖合并算一家，所以参与者可能比来源还少。点进事件，可以看各方的报道和观点。
-          </p>
+          {mirror ? (
+            <>
+              <p>
+                这一榜不是本站算出来的：本站{mirror.pace}一个公开行业目录自己的热点榜，整榜照读过来。顺序、热度值、走势、来源名单和摘要都是上游的口径，本站不重算、不改写，也不把自己的判断混进去。上游读不到时，页面继续显示上一次读到的内容，页头的更新时间就是那一次。
+              </p>
+              <p>
+                上游的热度看的是有多少账号和机构在讨论同一件事：同一家重复发只算一次，越近的讨论分量越重。它反映讨论有多热闹，不代表报道质量，也不代表本站的判断。角标（爆 / 新 / 发酵中）同样是上游自己的标记，本站按字面译出，不保证与上游的精确规则一致。
+              </p>
+              <p>
+                点进一条：本站已经把它作为资讯镜像过来的，打开本站的报道页，页面上有原文链接；还没有镜像的，直接在新标签页打开发布方的原文。榜单里的图片一律经本站的图片出口重新签名后取用，不引用上游的临时地址。
+              </p>
+              <p>重要公告是本站自己的一手官方发布，加上本站关注账号近三天里转述的公告，按发布时间排列，不属于这个榜，也没有热度值。</p>
+            </>
+          ) : (
+            <>
+              <p>热点榜按跨源讨论热度排序；重要公告列的是一手官方发布，加上本站关注账号近三天里转述的公告，按发布时间排列，不参与排名，也没有热度值。</p>
+              <p>热度看的是有多少账号和机构在讨论同一件事：同一家重复发只算一次，越近的讨论分量越重，每过 24 小时减半。它反映讨论有多热闹，不代表报道质量。</p>
+              <p>榜单只看过去 48 小时。走势只拿同一批一直在看的来源比较，反映的是我们看得到的范围，不代表全网人数；没有可比的历史时，不画走势线。</p>
+              <p>
+                来源名单只列能公开阅读的报道；参与讨论的还有一些不在名单里展示的账号和机构。同一家机构在不同平台发帖合并算一家，所以参与者可能比来源还少。点进事件，可以看各方的报道和观点。
+              </p>
+            </>
+          )}
           <dl className="flex flex-wrap gap-x-5 gap-y-1.5 pt-1">
             {Object.values(BADGES).map((b) => (
               <div key={b.label} className="flex items-center gap-1.5">
                 <dt>
                   <Badge tone={b.tone}>{b.label}</Badge>
                 </dt>
-                <dd>{b.hint}</dd>
+                <dd>{mirror ? `上游标记：${b.hint}` : b.own}</dd>
               </div>
             ))}
           </dl>

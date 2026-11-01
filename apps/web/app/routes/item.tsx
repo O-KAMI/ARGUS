@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
 import { Await, isRouteErrorResponse, Link, useAsyncError, useLoaderData, useNavigate, useRevalidator, type ClientLoaderFunctionArgs } from "react-router";
 import type { Route } from "./+types/item";
 import type { FeedItemSummary, SiteItemDetail } from "@aihot/contracts/site";
+import { isMirrored } from "@aihot/contracts/taxonomy";
 import { ITEM_COPY, SITE } from "@aihot/site";
 import { cachedPage, loadOr404 } from "../lib/api.server";
 import { pageReuse } from "../lib/page-reuse";
@@ -203,6 +204,7 @@ export default function ItemPage() {
 function ItemPreview({ preview }: { preview: FeedItemSummary }) {
   const [toast, setToast] = useToast();
   const isX = preview.channel === "x" && !!preview.x;
+  const mirrored = isMirrored(preview.platform);
   // Without a reliable date from the original, the card's time is when it was collected, and says so.
   const shownAt = preview.publishedAt ?? preview.timelineAt;
   return (
@@ -218,14 +220,14 @@ function ItemPreview({ preview }: { preview: FeedItemSummary }) {
           {preview.selected && <span className="ml-1">{preview.sameEvent ? <SameEventBadge /> : <SelectedBadge />}</span>}
           {shownScore(preview.score) !== null && (
             <span className="ml-1">
-              <ScoreLabel score={preview.score} />
+              <ScoreLabel score={preview.score} mirror={mirrored} />
             </span>
           )}
         </div>
         {!isX && <h1 data-page-title="" className="text-[26px] font-bold leading-[1.38] tracking-[-0.01em] text-ink">{preview.title}</h1>}
         {preview.summary && (
           <section className={isX ? "mt-4" : "mt-7"}>
-            <div className="mb-2 text-[12px] font-semibold text-accent">{isX && preview.summary.replace(/\s+/g, " ").trim() === preview.title ? "原文" : "AI 导读"}</div>
+            <div className="mb-2 text-[12px] font-semibold text-accent">{isX && preview.summary.replace(/\s+/g, " ").trim() === preview.title ? "原文" : mirrored ? "摘要" : "AI 导读"}</div>
             <p className="text-[18px] leading-[1.7] text-ink">{preview.summary}</p>
           </section>
         )}
@@ -319,6 +321,9 @@ function ItemView({ item }: { item: SiteItemDetail }) {
   const shownAt = item.publishedAt ?? item.discoveredAt;
   const timeLabel = item.publishedAt ? "发布时间" : "收录时间";
   const summaryOnly = item.readingMode === "summary-only";
+  // A mirrored report's copy, score and reason are the catalogue's own, read as they were: this site never
+  // called a model for them, so nothing on the page may say it did.
+  const mirrored = isMirrored(item.platform);
   const showOutline = item.outline.length >= 3;
   const originalLabel = isX ? "在 X 查看原推" : "打开原文";
 
@@ -381,7 +386,7 @@ function ItemView({ item }: { item: SiteItemDetail }) {
   const verdict = (item.selected || shownScore(item.score) !== null) && (
     <div className="flex items-center gap-2">
       {item.selected && (item.sameEvent ? <SameEventBadge /> : <SelectedBadge />)}
-      <ScoreLabel score={item.score} />
+      <ScoreLabel score={item.score} mirror={mirrored} />
     </div>
   );
 
@@ -416,7 +421,7 @@ function ItemView({ item }: { item: SiteItemDetail }) {
           <p className="text-[13.5px] leading-[1.8] text-ink-2">{item.reason}</p>
         </RailSection>
       ) : (
-        verdict && <RailSection title={shownScore(item.score) !== null ? "AI 评分" : undefined}>{verdict}</RailSection>
+        verdict && <RailSection title={shownScore(item.score) !== null ? (mirrored ? ITEM_COPY.mirrorScoreLabel : "AI 评分") : undefined}>{verdict}</RailSection>
       )}
       {item.topics.length > 0 && (
         <RailSection title="主题">
@@ -494,7 +499,7 @@ function ItemView({ item }: { item: SiteItemDetail }) {
             )}
             {shownScore(item.score) !== null && (
               <span className="ml-1 lg:hidden">
-                <ScoreLabel score={item.score} />
+                <ScoreLabel score={item.score} mirror={mirrored} />
               </span>
             )}
           </div>
@@ -503,7 +508,7 @@ function ItemView({ item }: { item: SiteItemDetail }) {
 
           {item.summary && (!isX || item.summary.replace(/\s+/g, " ").trim() !== item.title) && (
             <section className={isX ? "mt-4" : "mt-7 xl:mt-8"}>
-              <div className="mb-2 text-[12px] font-semibold text-accent">{summaryOnly ? "摘要" : "AI 导读"}</div>
+              <div className="mb-2 text-[12px] font-semibold text-accent">{summaryOnly || mirrored ? "摘要" : "AI 导读"}</div>
               <p className="text-[18px] leading-[1.7] text-ink xl:text-[20px] xl:leading-[1.7]">{item.summary}</p>
             </section>
           )}
@@ -532,6 +537,11 @@ function ItemView({ item }: { item: SiteItemDetail }) {
           )}
 
           {summaryOnly && <p className="mt-7 rounded-control bg-bg-sunk px-4 py-3 text-[13.5px] leading-relaxed text-ink-3">应来源方要求，这里只提供摘要与原文入口。完整内容请阅读原文。</p>}
+          {mirrored && !summaryOnly && (
+            <p className="mt-7 rounded-control bg-bg-sunk px-4 py-3 text-[13.5px] leading-relaxed text-ink-3">
+              这条来自行业镜像：本站只照读它的标题与摘要，不抓取正文，也不重算评分。完整内容请阅读原文。
+            </p>
+          )}
 
           {item.body && bodyHtml && (
             <section className="mt-9 border-t border-line pt-4 xl:mt-10">

@@ -1,5 +1,5 @@
 import { Link } from "react-router";
-import type { FeedItemSummary, HotEntryView, HotResponse, MediaView, TimelineCard, TimelineResponse, TopicSummary, TopicsResponse } from "@aihot/contracts/site";
+import type { FeedItemSummary, HotEntryView, HotMirrorNote, HotResponse, MediaView, TimelineCard, TimelineResponse, TopicSummary, TopicsResponse } from "@aihot/contracts/site";
 import { CATEGORY_LABELS } from "@aihot/contracts/taxonomy";
 import { beijingDate, beijingEnglishDate } from "@aihot/contracts/time";
 import { IntentLink } from "../../components/ui/IntentLink";
@@ -7,6 +7,7 @@ import { EmptyState } from "../../components/ui/Page";
 import { SourceAvatar } from "../../components/ui/SourceAvatar";
 import { IconBookmark, IconChart, IconChevronRight, IconFlame } from "../../components/icons";
 import { INK, InkIcon, type InkIconName } from "../../components/ink";
+import { EntryLink, isOwnStory } from "../hot/EntryLink";
 import { Faces } from "../hot/Faces";
 import { Sparkline } from "../hot/Sparkline";
 import { OriginalLink, SourceLine, StarButton } from "../feed/parts";
@@ -103,7 +104,7 @@ function LeadHeat({ entry }: { entry: HotEntryView }) {
   );
 }
 
-function LeadHot({ entry }: { entry?: HotEntryView }) {
+function LeadHot({ entry, mirror }: { entry?: HotEntryView; mirror?: HotMirrorNote | null }) {
   return (
     <section aria-labelledby="home-hot-title">
       <div className="mb-3 flex items-center gap-2">
@@ -116,10 +117,12 @@ function LeadHot({ entry }: { entry?: HotEntryView }) {
             <img src={entry.cover.url} srcSet={entry.cover.srcSet} sizes="(min-width: 1280px) 650px, (min-width: 961px) 48vw, calc(100vw - 64px)" width={entry.cover.width ?? undefined} height={entry.cover.height ?? undefined} alt="" loading="eager" fetchPriority="high" decoding="async" className="aspect-[16/5] w-full rounded-control bg-bg-sunk object-cover sm:aspect-[32/9]" />
           ) : <LeadHeat entry={entry} />}
           <h3 className="mt-4 line-clamp-2 font-serif text-[21px] font-semibold leading-[1.45] text-ink sm:text-[23px]">
-            <IntentLink viewTransition to={`/story/${entry.story.publicId}`} className="after:absolute after:inset-0 after:content-[''] group-hover:text-accent">{entry.story.title}</IntentLink>
+            <EntryLink e={entry} className="after:absolute after:inset-0 after:content-[''] group-hover:text-accent">{entry.story.title}</EntryLink>
           </h3>
           <div className="relative z-10 mt-2 flex flex-wrap gap-1.5">
-            <span className="rounded-mark bg-bg-sunk px-2 py-1 text-[11px] text-ink-3">跨源热点</span>
+            {/* A mirrored ranking is a reading of somebody else's, so the chip names it rather than claiming
+                cross-source heat of this site's own. */}
+            <span className="rounded-mark bg-bg-sunk px-2 py-1 text-[11px] text-ink-3">{mirror ? mirror.label : "跨源热点"}</span>
             {entry.sourceNames.slice(0, 2).map((name) => <span key={name} className="rounded-mark bg-bg-sunk px-2 py-1 text-[11px] text-ink-3">{name}</span>)}
           </div>
           {entry.summary && <p className="mt-3 line-clamp-2 text-[14px] leading-[1.75] text-ink-3">{entry.summary}</p>}
@@ -127,7 +130,10 @@ function LeadHot({ entry }: { entry?: HotEntryView }) {
             <Faces participants={entry.participants} total={entry.participantCount} size={24} interactive={false} />
             <span className="min-w-0 truncate text-[12px] text-ink-4">{entry.sourceCount} 个来源 · {entry.participantCount} 位参与者</span>
             <span className="ml-auto inline-flex shrink-0 items-center gap-1 text-[12px] text-hot"><IconFlame size={14} /><span className="num">{Math.round(entry.heat)}</span></span>
-            <Link to={`/story/${entry.story.publicId}`} aria-label="查看事件与收藏报道" title="查看事件与收藏报道" className="grid size-8 place-items-center rounded-control text-ink-4 hover:bg-bg-sunk hover:text-accent"><IconBookmark size={17} /></Link>
+            {/* The event page and the reports collected under it are this site's own; a mirrored entry has neither. */}
+            {isOwnStory(entry) && (
+              <Link to={`/story/${entry.story.publicId}`} aria-label="查看事件与收藏报道" title="查看事件与收藏报道" className="grid size-8 place-items-center rounded-control text-ink-4 hover:bg-bg-sunk hover:text-accent"><IconBookmark size={17} /></Link>
+            )}
           </div>
         </article>
       ) : <div className="card"><EmptyState title="今日暂无跨源热点">达到讨论门槛的事件会显示在这里。</EmptyState></div>}
@@ -145,12 +151,12 @@ function HotRanking({ entries }: { entries: HotEntryView[] }) {
             const face = entry.participants[0];
             return (
               <li key={entry.story.publicId}>
-                <IntentLink to={`/story/${entry.story.publicId}`} className="group flex min-h-[66px] items-center gap-2.5 py-2">
+                <EntryLink e={entry} className="group flex min-h-[66px] items-center gap-2.5 py-2">
                   <span className={`grid size-6 shrink-0 place-items-center rounded-mark text-[12px] font-semibold ${entry.rank === 1 ? "bg-rank-1 text-white" : entry.rank <= 3 ? "bg-bg-sunk text-rank-2" : "bg-bg-sunk text-ink-4"}`}>{entry.rank}</span>
                   <SourceAvatar name={face?.name ?? entry.story.title} iconUrl={face?.iconUrl} iconSrcSet={face?.iconSrcSet} size={26} />
                   <span className="min-w-0 flex-1 line-clamp-2 text-[13px] font-medium leading-[1.45] text-ink-2 group-hover:text-ink">{entry.story.title}</span>
                   <span className="inline-flex shrink-0 items-center gap-1 text-[12px] text-ink-4"><IconFlame size={13} className="text-hot" /><span className="num">{Math.round(entry.heat)}</span></span>
-                </IntentLink>
+                </EntryLink>
               </li>
             );
           })}
@@ -205,7 +211,7 @@ export function HomeBoard({ data, hot, topics }: { data: TimelineResponse; hot: 
         <DateCard />
         <div className="hidden lg:block"><TopicRail topics={topics.topics} /></div>
       </div>
-      <div className="min-w-0"><LeadHot entry={hot.entries[0]} /></div>
+      <div className="min-w-0"><LeadHot entry={hot.entries[0]} mirror={hot.mirror} /></div>
       <div className="hidden min-w-0 lg:block"><HotRanking entries={hot.entries} /></div>
       {!unreadOnly && (
         <section className="min-w-0 lg:col-span-2 lg:col-start-2" aria-labelledby="home-selected-title">

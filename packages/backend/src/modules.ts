@@ -5,7 +5,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { WorkOptions } from "pg-boss";
 import type { z } from "zod";
-import type { Brand } from "@aihot/contracts/site";
+import type { Brand, HotEntryView, HotMirrorNote } from "@aihot/contracts/site";
 import type { PlatformKey } from "@aihot/contracts/taxonomy";
 import type { Db } from "./db.ts";
 import type { QueueOptions } from "./jobs/queue.ts";
@@ -180,6 +180,35 @@ export interface RequestNotices {
   feed: (req: FastifyRequest, feedPath: string) => FeedNotice | null;
 }
 
+/**
+ * One entry of a ranking a module publishes in place of the engine's. It is the public shape plus what the
+ * machine exit needs: an entry this site mirrors has no event page of its own, so `story.publicId` is the
+ * upstream event's id (unique among the entries, and what the web keys its rows by) and `link` says where a
+ * reader actually goes.
+ */
+export interface PublishedHotEntry extends HotEntryView {
+  /** This site's own report id when it has one for the entry; null when it only mirrors the ranking. */
+  itemId: string | null;
+  /** The publisher's own article, unwrapped from any proxy of the catalogue's. */
+  representativeUrl: string | null;
+  representativeSource: string | null;
+  signalCount: number;
+  latestAt: string;
+}
+
+/**
+ * A hot ranking of its own, read from a stored snapshot instead of computed from this site's evidence.
+ * Every hot surface reads the same one (publication/hot.ts `publishedHot`), so the page, the home strip,
+ * the search suggestions and the machine exit cannot disagree about what is hot.
+ */
+export interface PublishedHot {
+  computedAt: string;
+  windowHours: number;
+  /** What the surfaces say about where the ranking came from, drawn as `HotResponse.mirror`. */
+  mirror: HotMirrorNote;
+  entries: PublishedHotEntry[];
+}
+
 export interface ServerModule {
   /** Its folder under modules/. */
   name: string;
@@ -261,6 +290,12 @@ export interface ServerModule {
   notices?: Partial<RequestNotices>;
   /** The origin v1 links stories at while it returns one, instead of the site's (publication/links.ts: hot topics' links.story, related stories' links.api). */
   storyOrigin?: () => string | null;
+  /**
+   * The hot ranking to publish on every hot surface instead of the engine's own, read from a snapshot this
+   * module keeps (publication/hot.ts `publishedHot`). Null, or a ranking with no entries, leaves the
+   * engine's own in place, so a module that has not read anything yet publishes nothing at all.
+   */
+  hot?: () => Promise<PublishedHot | null>;
   /** More keys a feedback sender is known by; a ban under any of them holds (operations/feedback.ts). */
   feedbackKeys?: (ip: string) => string[];
 }

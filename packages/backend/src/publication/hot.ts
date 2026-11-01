@@ -5,7 +5,9 @@ import { HOT_FACE_LIMIT, type HotParticipant, type HotStripEntry, type Important
 import { sql } from "../db.ts";
 import { storedHotRanking, tierRank, type HotEntry, type HotRanking } from "../events/hot.ts";
 import { shared } from "../lib/cache.ts";
+import { logError } from "../lib/log-error.ts";
 import { proxiedImage, proxiedImageSet } from "../media/imgproxy.ts";
+import { serverModules, type PublishedHot, type PublishedHotEntry } from "../modules.ts";
 import { ITEM_COLUMNS, ITEM_FROM, toItemSummary, type ItemRow } from "./items.ts";
 import { publicSourceName } from "./rules.ts";
 import { evidenceCondition, listedCondition, selectedCondition } from "./scope.ts";
@@ -18,8 +20,38 @@ export function latestHotRanking(): Promise<HotRanking | null> {
   return ranking();
 }
 
+// The installed module that keeps a ranking of its own, read the same way: concurrent asks share one read,
+// and every hot surface asks here, so the page, the strip, the suggestions and the machine exit agree.
+const mirrored = shared<void, PublishedHot | null>(() => "mirror", readMirroredHot);
+
+async function readMirroredHot(): Promise<PublishedHot | null> {
+  for (const m of serverModules()) {
+    try {
+      const hot = await m.hot?.();
+      if (hot?.entries.length) return hot;
+    } catch (error) {
+      // A ranking nobody can read is no ranking: the engine's own stays up rather than the page failing.
+      console.warn(JSON.stringify({ level: "warn", msg: "a module's hot ranking could not be read", module: m.name, err: logError(error) }));
+    }
+  }
+  return null;
+}
+
+/**
+ * The ranking to publish: an installed module's stored one, else null, which leaves the engine's own
+ * computed ranking in place. A module that has read nothing yet publishes nothing, so a fresh site shows
+ * its own empty ranking rather than somebody else's.
+ */
+export function publishedHot(): Promise<PublishedHot | null> {
+  return mirrored();
+}
+
 /** Search links follow the same current public evidence as every hot-ranking surface. */
 export async function hotSearchLinks() {
+  const mirror = await publishedHot();
+  // A suggestion is a route of this site, so it can only name a page this site has: a mirrored entry with a
+  // report of its own links that, and one without is left out instead of sending five rows to /hot.
+  if (mirror) return mirror.entries.filter((e) => e.itemId).slice(0, 5).map((e) => ({ rank: e.rank, title: e.story.title, to: `/items/${e.itemId}` }));
   const ranking = await latestHotRanking();
   return (ranking?.entries ?? []).slice(0, 5).map(e => ({ rank: e.rank, title: e.title, to: `/story/${e.storyPublicId}` }));
 }
@@ -110,8 +142,26 @@ export async function rankingExtras(ranking: HotRanking) {
   };
 }
 
+/**
+ * The strip's entry for a mirrored ranking. `storyPublicId` stays null on purpose: the strip links with a
+ * route of this site, and the upstream event's id is not one, so it opens the report this site has for the
+ * entry or, without one, the ranking page (HotTopics.hrefOf).
+ */
+const stripEntry = (e: PublishedHotEntry): HotStripEntry => ({
+  rank: e.rank,
+  title: e.story.title,
+  heat: e.heat,
+  trend: e.trend,
+  storyPublicId: null,
+  itemId: e.itemId,
+  participants: e.participants,
+  participantCount: e.participantCount,
+});
+
 /** Home "current hot" strip: 3–5 entries from the same ranking, hidden when there are fewer than 3. */
 export async function loadHotStrip(): Promise<HotStripEntry[] | null> {
+  const mirror = await publishedHot();
+  if (mirror) return mirror.entries.length < 3 ? null : mirror.entries.slice(0, 5).map(stripEntry);
   const ranking = await latestHotRanking();
   if (!ranking || ranking.entries.length < 3) return null;
   const extras = await rankingExtras(ranking);

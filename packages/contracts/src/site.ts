@@ -56,11 +56,17 @@ export interface ItemSummary {
   score: number | null;
   selected: boolean;
   channel: "news" | "x";
+  /**
+   * The platform publishing decided once (publication/rules.ts platformOf), as the pool's 来源 filter reads
+   * it. A report mirrored from another catalogue carries its own copy and its own numbers, so a surface says
+   * 镜像评分 rather than claiming this site's model judged it.
+   */
+  platform?: PlatformKey | null;
   story: StoryRef | null;
 }
 
 /** The fields rendered by a site feed card; full original text lives in the item detail. */
-export interface FeedItemSummary extends Pick<ItemSummary, "id" | "title" | "summary" | "reason" | "source" | "links" | "publishedAt" | "timelineAt" | "category" | "tags" | "score" | "selected" | "channel"> {
+export interface FeedItemSummary extends Pick<ItemSummary, "id" | "title" | "summary" | "reason" | "source" | "links" | "publishedAt" | "timelineAt" | "category" | "tags" | "score" | "selected" | "channel" | "platform"> {
   /** The first usable article/video cover; X posts keep their media in x. */
   cover?: MediaView | null;
   x: (Pick<XPostView, "authorName" | "handle" | "avatarUrl" | "avatarSrcSet" | "media"> & {
@@ -221,6 +227,33 @@ export interface HotEntryView {
   latest: string | null;
   /** A picture from the story's public reports (the representative first), for the leading cards. */
   cover: { url: string; srcSet?: string; width: number | null; height: number | null } | null;
+  /**
+   * Where the entry opens instead of its event page, for an entry this site mirrors rather than computed
+   * from its own evidence: it has no event page here, so `story.publicId` is the upstream event's own id
+   * and this says where a reader actually goes. Absent means the entry is this site's own.
+   */
+  link?: HotEntryLink | null;
+}
+
+/** Where a hot-ranking entry opens when it is not this site's own event page. */
+export interface HotEntryLink {
+  /** The address: this site's own report page, or the publisher's original article. */
+  to: string;
+  /** True when `to` leaves the site: drawn as an external link, opening in a new tab. */
+  external: boolean;
+}
+
+/**
+ * On HotResponse when the ranking is a reading of another catalogue's own, kept as it answered: this site
+ * republishes the order and the numbers instead of computing them from its own evidence. The label is this
+ * site's own neutral one, never the upstream's name or mark, and the address is there to compare against.
+ */
+export interface HotMirrorNote {
+  label: string;
+  /** The upstream's own ranking page. */
+  url: string;
+  /** How often this site reads it, in the words the page draws as they are. */
+  pace: string;
 }
 
 export interface ImportantAnnouncement {
@@ -239,6 +272,8 @@ export interface HotResponse {
   entries: HotEntryView[];
   /** Selected first-party reports, separate from cross-source heat and ranking. */
   announcements: ImportantAnnouncement[];
+  /** Set when the ranking is another catalogue's, read and kept as it answered; null when it is this site's own. */
+  mirror?: HotMirrorNote | null;
 }
 
 export interface HeatPoint {

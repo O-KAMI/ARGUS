@@ -130,6 +130,11 @@ export const ITEM_COPY = {
   reasonLabel: "推荐理由",
   /** 读者在网页和分享图上看不看得到 AI 评分。只管显示：公开 API 和 MCP 的数据照样带 score，后台照常显示。 */
   showScore: true,
+  /**
+   * 镜像条目的分数叫什么。那个数字是上游榜单自己的，本站对镜像内容一次模型都没调用，所以不能写成「AI 评分」；
+   * 卡片和详情页都用它（判断只看 platform，见 publication/rules.ts platformOf）。
+   */
+  mirrorScoreLabel: "镜像评分",
 };
 
 /** 关于页的一张二维码卡片。 */
