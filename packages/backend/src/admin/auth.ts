@@ -166,11 +166,20 @@ async function feishuUser(code: string): Promise<{ user: FeishuUser; appId: stri
 
 export class LoginRejected extends Error {}
 
+/** Live sessions kept per admin. Reads only filter `expires_at`, so nothing else ever shrinks the table. */
+export const MAX_SESSIONS_PER_USER = 5;
+
 async function createSession(userId: number, userAgent: string | undefined, auth: SessionAuth): Promise<string> {
   const token = randomBytes(32).toString("base64url");
+  // Sign-in is the only moment cheap enough to reap: delete expired rows and evict this admin's oldest
+  // sessions beyond the cap, or every forgotten script cookie stays a row for its whole 30 days.
+  await sql`DELETE FROM admin_sessions WHERE expires_at <= now()`;
   await sql`INSERT INTO admin_sessions (id_hash, user_id, csrf_token, expires_at, user_agent, auth_method, auth_binding, auth_claims)
             VALUES (${sha256(token)}, ${userId}, ${randomBytes(18).toString("base64url")}, ${new Date(Date.now() + SESSION_DAYS * 86400_000)}, ${userAgent?.slice(0, 300) ?? null},
                     ${auth.method}, ${auth.binding}, ${auth.claims ? sql.json(auth.claims as never) : null})`;
+  await sql`DELETE FROM admin_sessions
+            WHERE user_id = ${userId} AND id_hash NOT IN (
+              SELECT id_hash FROM admin_sessions WHERE user_id = ${userId} ORDER BY created_at DESC, id_hash DESC LIMIT ${MAX_SESSIONS_PER_USER})`;
   return token;
 }
 

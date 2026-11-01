@@ -6,7 +6,7 @@ import Fastify from "fastify";
 import { config } from "@aihot/backend/config";
 import { closeDb, sql } from "@aihot/backend/db";
 import { sha256 } from "@aihot/backend/lib/ids";
-import { completeLogin, endSession, loginRedirect, passwordLogin, SESSION_COOKIE, sessionPrincipal } from "@aihot/backend/admin/auth";
+import { completeLogin, endSession, loginRedirect, MAX_SESSIONS_PER_USER, passwordLogin, SESSION_COOKIE, sessionPrincipal } from "@aihot/backend/admin/auth";
 import { adminHandler, registerAdminAuth } from "../apps/api/src/routes/admin-auth.ts";
 
 const T = tag();
@@ -261,4 +261,25 @@ test("the session cookie is Secure only when the request itself is HTTPS, whatev
   assert.match(await sessionCookie("/api/auth/password", { "x-forwarded-proto": "https" }), /;\s*Secure\b/);
   assert.doesNotMatch(await sessionCookie("/api/auth/logout", {}), /;\s*Secure\b/);
   assert.match(await sessionCookie("/api/auth/logout", { "x-forwarded-proto": "https" }), /;\s*Secure\b/);
+});
+
+test("sign-in reaps expired rows and evicts the oldest sessions beyond the per-admin cap", async () => {
+  const first = await password();
+  const [row] = await sql<{ user_id: number }[]>`SELECT user_id FROM admin_sessions WHERE id_hash=${sha256(first)}`;
+  const userId = row!.user_id;
+  const synthetic = Array.from({ length: MAX_SESSIONS_PER_USER + 1 }, () => randomBytes(32).toString("base64url"));
+  for (const token of synthetic) {
+    await sql`INSERT INTO admin_sessions(id_hash,user_id,csrf_token,expires_at) VALUES(${sha256(token)},${userId},'synthetic-csrf',now()+interval '1 day')`;
+  }
+  const expired = randomBytes(32).toString("base64url");
+  await sql`INSERT INTO admin_sessions(id_hash,user_id,csrf_token,expires_at) VALUES(${sha256(expired)},${userId},'synthetic-csrf',now()-interval '1 day')`;
+  const fresh = await password();
+  assert.equal(await exists(expired), false, "an expired row is reaped at the next sign-in");
+  assert.equal(await exists(first), false, "the oldest session beyond the cap is evicted");
+  assert.equal(await exists(synthetic[0]), false, "eviction walks from the oldest end");
+  const rows = await sql`SELECT 1 FROM admin_sessions WHERE user_id=${userId}`;
+  assert.equal(rows.length, MAX_SESSIONS_PER_USER);
+  assert.equal(await exists(fresh), true);
+  assert.equal(await exists(synthetic[synthetic.length - 1]), true, "newer sessions survive the cap");
+  await principal(fresh);
 });
