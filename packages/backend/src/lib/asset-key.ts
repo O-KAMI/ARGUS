@@ -16,6 +16,14 @@ const NOT_AN_ASSET = /(?:^|\.)(?:x|twitter|fxtwitter|fixupx|fixvx|vxtwitter|nitt
 
 const strip = (value: string) => value.replace(/^[^A-Za-z0-9@]+/, "").replace(/[)\].,;:!?'"]+$/, "");
 
+/** The namespaces assetKey returns. A request guard reads this, so adding one cannot silently 404 at the API. */
+const NAMESPACE = /^(?:gh|hf|npm|pypi|url):/u;
+
+/** Whether a string could be one of assetKey's keys (a guard, not a parser). */
+export function isAssetKey(value: string): boolean {
+  return value.length <= 300 && NAMESPACE.test(value) && !/[\u0000-\u0020]/u.test(value);
+}
+
 /**
  * `gh:owner/repo`, `hf:owner/repo`, `npm:<pkg>`, `pypi:<pkg>` or `url:<normalized>`; null when the text
  * names no asset. `ownUrl` is the material's own permalink: a page linking to itself says nothing about

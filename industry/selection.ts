@@ -1,6 +1,7 @@
 // 精选的门槛。评分标准本身写在 prompts/selection-score.md；这里只决定“多少分算入选”。
-// 每篇资料由评分模型独立打两次分（0–100），两次之和 ≥ 2 × 门槛才成为精选候选；
-// 确认新闻身份与新增价值后，由发布规则决定展示（见 docs/selection.md），卡片上显示两次的平均分。
+// 新闻轨每篇资料由评分模型独立打两次分（0–100），平均分 ≥ 门槛才成为精选候选；学习轨答三档，
+// 只在边界档复判（见下面 learning 的说明）。确认新闻身份与新增价值后，由发布规则决定展示
+// （见 docs/selection.md），卡片上显示平均分。
 // 门槛按信源分级区分：官方一手信源的门槛低一些，媒体和个人的高一些。改了门槛或评分提示词，
 // 用 scripts/eval-selection.ts 在你自己标注的样本上重跑一遍，再决定上线（见 docs/selection.md）。
 
@@ -18,9 +19,14 @@ export const SELECTION = {
   understandFloor: 50,
   /**
    * 学习轨：判的不是新闻热度，而是“这条能不能提高站点主人的 AI 水平”。评分标准写在
-   * prompts/selection-score-learning.md，模型只回答三档，由 levels 映射成分数，于是
-   * “两次独立调用 + 两次之和 ≥ 2 × 门槛”这条既有规则一字不改地复用：
-   *   门槛 60（当前）＝两次都不低于 edge · 75 ＝至少一次 hit 且另一次不低于 edge · 90 ＝两次都 hit
+   * prompts/selection-score-learning.md，模型只回答三档，由 levels 映射成分数，再走与新闻轨同一条
+   * “平均分 ≥ 门槛”的规则（editorial/analyze.ts 的 scoresSelect）。
+   *
+   * 三档里只有 edge 恰好落在门槛上，所以只有 edge 是需要第二意见的边界档：hit 一定入选、miss 一定
+   * 不入选，再问一次也翻不了盘。analyze.ts 的 secondScoreWanted 据此省掉那次调用——起手 hit/miss
+   * 直接定案，起手 edge 才复判，复判出 miss 仍然否决（edge+miss 平均 40 < 60）。
+   * 与“两次都判”相比只有一处差别：起手 hit、复判 miss 的那类现在会入选（实测 756 篇里 1 篇）。
+   *
    * 学习轨的源都是主人本人关注的实践者，信任级同级，所以门槛不按 tier 分档。
    */
   learning: {

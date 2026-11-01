@@ -57,11 +57,11 @@ test("a folded card's other sources are those of the fact its representative rep
 
   // This test's reports only.
   const res = await app.inject({ method: "GET", url: `/api/site/timeline?limit=40&tag=${encodeURIComponent(`t-${T}`)}` });
-  const card = (JSON.parse(res.body).cards as Array<{ item: { id: string }; group: { factId: string; additionalSourceCount: number } | null }>)
+  const card = (JSON.parse(res.body).cards as Array<{ item: { id: string }; group: { kind: string; key: string; additionalSourceCount: number } | null }>)
     .find((c) => c.item.id === official || c.item.id === media);
   assert.ok(card, "the story has a card");
   assert.equal(card.item.id, official, "first-party representative");
-  assert.equal(card.group?.factId, launch!.public_id, "the fact the representative reports");
+  assert.deepEqual([card.group?.kind, card.group?.key], ["fact", launch!.public_id], "the fact the representative reports");
   assert.equal(card.group?.additionalSourceCount, 1, "the launch's other source, not the leak's");
 });
 

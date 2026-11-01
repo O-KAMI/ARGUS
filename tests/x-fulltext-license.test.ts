@@ -119,7 +119,7 @@ async function summaryMarkdown(f: Fixture) {
 
 async function summaryLists(f: Fixture) {
   // The group's report list carries titles and sources only, no summaries.
-  for (const [path, summary] of [[`/api/site/timeline?tag=${f.key}`, true], [`/api/site/pool?tag=${f.key}`, true], [`/api/site/groups/${f.fact}/reports`, false]] as const) {
+  for (const [path, summary] of [[`/api/site/timeline?tag=${f.key}`, true], [`/api/site/pool?tag=${f.key}`, true], [`/api/site/groups/reports?fact=${f.fact}`, false]] as const) {
     const response = await get(path);
     assert.ok(response.body.includes(f.id), `${path} 确实包含目标条目`);
     if (summary) assert.ok(response.body.includes(f.summary!), `${path} 保留摘要`);

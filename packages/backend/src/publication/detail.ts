@@ -19,6 +19,8 @@ interface DetailRow extends ItemRow {
   tr_html: string | null;
   tr_complete: boolean | null;
   topics: string[];
+  /** The asset this item recommends, when its text names one (lib/asset-key.ts). */
+  asset_key: string | null;
 }
 
 export type DetailResult =
@@ -41,7 +43,7 @@ function withOutline(html: string): { html: string; outline: OutlineEntry[] } {
 
 async function loadRow(id: string): Promise<DetailRow | null> {
   const [row] = await sql<DetailRow[]>`
-    SELECT ${ITEM_COLUMNS}, a.body_html, a.body_text, a.body_status, tr.body_html AS tr_html, tr.complete AS tr_complete,
+    SELECT ${ITEM_COLUMNS}, a.body_html, a.body_text, a.body_status, a.asset_key, tr.body_html AS tr_html, tr.complete AS tr_complete,
       ${topicMembership()} AS topics
     ${ITEM_FROM}
     WHERE p.article_id = ${id}`;
@@ -130,8 +132,23 @@ export async function loadItemDetail(id: string, language: "zh" | "original" = "
     reading = readingBody(language, zh, chinese ? null : row.body_html, chinese ? true : row.tr_complete ?? false, (html) => withOutline(proxyBodyImages(html)));
   }
 
+  // The same precedence the timeline folds with: an asset takes the item away from its fact, so the
+  // reader who came from a folded card finds the same group here.
   let group: SiteItemDetail["group"] = null;
-  if (row.fact_id) {
+  if (row.asset_key) {
+    const [g] = await sql<{ reports: number; sources: number }[]>`
+      SELECT count(p.article_id) AS reports, count(DISTINCT p.source_id) AS sources
+      FROM publications p JOIN articles asset_a ON asset_a.id = p.article_id
+      WHERE asset_a.asset_key = ${row.asset_key} AND ${listedCondition(now)}`;
+    if (g) {
+      group = {
+        kind: "asset",
+        key: row.asset_key,
+        reportCount: Number(g.reports),
+        additionalSourceCount: Math.max(0, Number(g.sources) - 1),
+      };
+    }
+  } else if (row.fact_id) {
     const [g] = await sql<{ public_id: string; reports: number; sources: number }[]>`
       SELECT f.public_id, count(p.article_id) AS reports, count(DISTINCT p.source_id) AS sources
       FROM facts f JOIN fact_articles fa ON fa.fact_id = f.id JOIN publications p ON p.article_id = fa.article_id
@@ -139,7 +156,8 @@ export async function loadItemDetail(id: string, language: "zh" | "original" = "
       GROUP BY f.public_id`;
     if (g) {
       group = {
-        factId: g.public_id,
+        kind: "fact",
+        key: g.public_id,
         reportCount: Number(g.reports),
         additionalSourceCount: Math.max(0, Number(g.sources) - 1),
       };

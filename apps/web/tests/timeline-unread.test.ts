@@ -15,9 +15,9 @@ const summaryOf = (id: string, title: string, timelineAt = at) => feedItem({ id,
 const card = (id: string, title: string, timelineAt = at) => ({ key: id, anchorAt: timelineAt, item: summaryOf(id, title, timelineAt), group: null });
 // A reading group whose representative is read but whose other selected report is not: the filter
 // must keep it, or the unread report behind the representative would be unreachable.
-const groupCard = { key: "g1", anchorAt: at, item: summaryOf("rep-1", "代表文章"), group: { factId: "f1", additionalSourceCount: 1, reportCount: 2, memberIds: ["rep-1", "member-2"] } };
+const groupCard = { key: "g1", anchorAt: at, item: summaryOf("rep-1", "代表文章"), group: { kind: "fact", key: "f1", additionalSourceCount: 1, reportCount: 2, memberIds: ["rep-1", "member-2"] } };
 // ...and one whose every selected report is read: it must go.
-const readGroupCard = { key: "g2", anchorAt: at, item: summaryOf("rep-3", "已读完的组"), group: { factId: "f2", additionalSourceCount: 1, reportCount: 2, memberIds: ["rep-3", "member-4"] } };
+const readGroupCard = { key: "g2", anchorAt: at, item: summaryOf("rep-3", "已读完的组"), group: { kind: "fact", key: "f2", additionalSourceCount: 1, reportCount: 2, memberIds: ["rep-3", "member-4"] } };
 
 let web: WebServer;
 let origin: string;
@@ -47,9 +47,9 @@ const api = fakeApi((url, res) => {
     }
     return { filters: { channel: "all", category: null, tag: null }, cards: [card("c1", "第一页文章甲"), card("c2", "第一页文章乙")], nextCursor: "p2", hot: null, dayCounts: { "2026-10-04": 2 } };
   }
-  if (p === "/api/site/groups/f1/reports") {
+  if (p === "/api/site/groups/reports" && url.searchParams.get("fact") === "f1") {
     const report = (id: string, title: string) => ({ id, title, source: { name: "Fixture" }, timelineAt: at, originalUrl: `https://example.org/${id}` });
-    return { factId: "f1", reports: [report("rep-1", "代表文章"), report("member-2", "组内未读报道"), report("other-5", "组内已读报道")] };
+    return { kind: "fact", key: "f1", reports: [report("rep-1", "代表文章"), report("member-2", "组内未读报道"), report("other-5", "组内已读报道")] };
   }
   if (p.startsWith("/api/site/items/")) {
     const id = p.split("/").at(-1)!;

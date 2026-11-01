@@ -12,16 +12,18 @@ import { analyzeArticle, buildMaterial, loadAnalyzeInput, normalizeStructure, St
 import { queueProcessing } from "@aihot/backend/jobs/content";
 import { QUEUES, stopBoss } from "@aihot/backend/jobs/queue";
 import { compactAnswerFirstSummary, enforceIdentity, MAX_BODY_CHARS, parseTranslateOutput } from "@aihot/backend/editorial/writing";
+import { SELECTION } from "@aihot/industry/selection";
 import { READER_WORDING } from "@aihot/industry/wording";
 import { ITEM_TYPES } from "@aihot/industry/taxonomy";
 
 const T = tag();
 const SOURCE = `test-analyze-${T}`;
 const X_SOURCE = `test-analyze-x-${T}`;
+const LEARNING_SOURCE = `test-analyze-learning-${T}`;
 
 interface Req { step: AnalysisStep; marker: string; user: string }
 const requests: Req[] = [];
-const MARKERS = ["CLEAR", "RESCUE", "LOW", "OFFTOPIC", "BARE", "VAGUE", "THIN", "SENSITIVE", "推文", "WORDY", "REFUSAL", "RENUMBER", "UNMENDED"];
+const MARKERS = ["LHIT", "LMISS", "LEDGEKEEP", "LEDGERAISE", "LEDGEVETO", "CLEAR", "RESCUE", "LOW", "OFFTOPIC", "BARE", "VAGUE", "THIN", "SENSITIVE", "推文", "WORDY", "REFUSAL", "RENUMBER", "UNMENDED"];
 // The scores sit a few points around the pack's T1 threshold and understand floor, so each case means
 // the same after a site recalibrates them: selected when the two add up to 2 × T1, written like a
 // selected item when they add up to more than 2 × FLOOR, translated otherwise.
@@ -30,6 +32,15 @@ const FLOOR = UNDERSTAND_FLOOR;
 const scoreAnswers: Record<string, number[]> = {
   CLEAR: [T1 + 3, T1 - 1], RESCUE: [FLOOR + 1, FLOOR], LOW: [FLOOR, FLOOR - 1], THIN: [T1, T1], SENSITIVE: [T1, T1], 推文: [FLOOR, FLOOR],
   BARE: [FLOOR - 2, FLOOR - 4], VAGUE: [T1, T1 + 2], WORDY: [T1, T1], REFUSAL: [T1, T1], RENUMBER: [T1, T1], UNMENDED: [T1, T1],
+};
+
+// The learning track answers in levels, and a level that is not exactly on the threshold cannot be moved
+// by asking again — so the cases that must settle on one call are given one answer only. A second call
+// would shift an empty queue and answer `undefined`, which the level schema rejects: the case then fails
+// on the spot instead of quietly spending a call.
+const LEVELS = SELECTION.learning.levels;
+const levelAnswers: Record<string, string[]> = {
+  LHIT: ["hit"], LMISS: ["miss"], LEDGEKEEP: ["edge", "edge"], LEDGERAISE: ["edge", "hit"], LEDGEVETO: ["edge", "miss"],
 };
 
 const WORDY = ["WORDY", "REFUSAL", "RENUMBER", "UNMENDED"];
@@ -45,6 +56,7 @@ const provider = await stub((_hit, req) => {
   const answer = (content: unknown) => ({ id: `stub-${requests.length}`, model: "stub", choices: [{ message: { content: typeof content === "string" ? content : JSON.stringify(content) } }], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } });
   if (step === "prefilter") return answer({ label: marker === "OFFTOPIC" || marker === "BARE" ? "BLOCK" : marker === "VAGUE" ? "UNKNOWN" : "PASS", reason: "测试" });
   if (step === "score") return answer({ attentionScore: scoreAnswers[marker]!.shift() });
+  if (step === "score-learning") return answer({ level: levelAnswers[marker]!.shift(), kinds: ["skill_playbook"] });
   // Copy with a word a site keeps from readers (added to the pack's list below), and its mended form: whole (WORDY),
   // refused by the provider, with a number changed, or with as many such words as before.
   if (step === "understand" && WORDY.includes(marker)) return answer({ itemType: ITEM_TYPES[0], authorRole: "principal", tags: [], editorialJudgment: `理由里有禁用词 ${marker}`, titleZh: `标题里有禁用词 ${marker}`, summaryZh: `${marker} 的摘要。第二句补充 3 个数字。` });
@@ -64,9 +76,10 @@ const provider = await stub((_hit, req) => {
 pointModels(provider.url);
 
 before(async () => {
-  await sql`INSERT INTO sources (id, name, kind, tier, participation_mode, next_fetch_at) VALUES
-    (${SOURCE}, 'Test analyze source', 'rss', 'T1', 'editorial', '2100-01-01'),
-    (${X_SOURCE}, 'Test X account', 'x_search', 'T1', 'editorial', '2100-01-01')`;
+  await sql`INSERT INTO sources (id, name, kind, tier, participation_mode, tags, next_fetch_at) VALUES
+    (${SOURCE}, 'Test analyze source', 'rss', 'T1', 'editorial', '{}', '2100-01-01'),
+    (${X_SOURCE}, 'Test X account', 'x_search', 'T1', 'editorial', '{}', '2100-01-01'),
+    (${LEARNING_SOURCE}, 'Test learning source', 'rss', 'T1', 'editorial', ${["track:learning"]}, '2100-01-01')`;
 });
 after(async () => {
   await provider.close();
@@ -102,6 +115,33 @@ test("a selected item: prefilter, two scores, the content understanding and the 
   assert.equal(r.output.fact.evidence, "a lab released a model");
   const score = requests.find((q) => q.marker === "CLEAR" && q.step === "score")!;
   assert.match(score.user, /【标题】\nCLEAR model release/, "the score reads the original title, before any writing");
+});
+
+test("the learning track asks again only when the first level sits on the threshold", async () => {
+  const LEARNING_T = SELECTION.learning.threshold;
+  assert.equal(LEVELS.edge, LEARNING_T, "these cases need edge on the threshold: that is the only verdict a second call can move");
+  assert.ok(LEVELS.hit > LEARNING_T && LEVELS.miss < LEARNING_T, "and the other two levels clearly off it");
+  // marker, selected, the mean shown on the card, how many score calls that verdict is worth
+  const cases: Array<[string, boolean, number, number]> = [
+    ["LHIT", true, LEVELS.hit, 1],
+    ["LMISS", false, LEVELS.miss, 1],
+    ["LEDGEKEEP", true, LEVELS.edge, 2],
+    ["LEDGERAISE", true, Math.floor((LEVELS.edge + LEVELS.hit) / 2), 2],
+    ["LEDGEVETO", false, Math.floor((LEVELS.edge + LEVELS.miss) / 2), 2],
+  ];
+  for (const [marker, selected, score, wanted] of cases) {
+    const id = await article(marker, { sourceId: LEARNING_SOURCE });
+    const out = (await analyzeArticle(id))!.output!;
+    assert.equal(out.selected, selected, `${marker}: 入选结论`);
+    assert.equal(out.score, score, `${marker}: 卡片显示实际打过那几次的平均分`);
+    // A vetoed item is still written, by the cheap path: it just gets no 精选 seat and no 推荐理由.
+    assert.equal(out.reasonZh !== null, selected, `${marker}: 只有入选的才有推荐理由`);
+    assert.equal(calls(marker).filter((s) => s === "score-learning").length, wanted, `${marker}: 打分次数`);
+    assert.equal(calls(marker).filter((s) => s === "score").length, 0, `${marker}: 不用新闻轨的评分措辞`);
+  }
+  // The one-call cases were given a single answer, so an unwanted second call would have shifted an empty
+  // queue; the queues being empty is the proof that none was made.
+  assert.deepEqual([levelAnswers.LHIT!.length, levelAnswers.LMISS!.length], [0, 0], "起手命中与不命中都一次定案");
 });
 
 test("a word the site keeps from readers goes back once to be changed; copy without one is not sent", async () => {

@@ -10,7 +10,7 @@ import { FIXTURE_AT as at, fakeApi, feedItem, startWebServer, visit, type WebSer
 const longText = "查看完整说明 https://example.org/announcements/" + "a".repeat(100) + "。";
 const longTitle = "一条很长的标题".repeat(30);
 const keys = { daily: "2026-10-15", weekly: "2026-W42", monthly: "2026-10" };
-const groupCard = { key: "g1", anchorAt: at, item: feedItem({ id: "rep-1", title: "代表文章" }), group: { factId: "f1", additionalSourceCount: 1, reportCount: 2, memberIds: ["rep-1"] } };
+const groupCard = { key: "g1", anchorAt: at, item: feedItem({ id: "rep-1", title: "代表文章" }), group: { kind: "fact", key: "f1", additionalSourceCount: 1, reportCount: 2, memberIds: ["rep-1"] } };
 // Three plain cards ahead of the group: the home's selected grid takes the first three, and the group's
 // expansion stays in the timeline below it, where this check opens it.
 const plainCard = (id: string) => ({ key: id, anchorAt: at, item: feedItem({ id, title: `普通文章 ${id}` }), group: null });
@@ -23,8 +23,8 @@ const api = fakeApi((url) => {
     announcements: [{ id: "official-announcement", title: "官方重要公告", summary: "一手官方发布摘要", source: { name: "Fixture Official" }, links: { original: "https://example.org/official" }, publishedAt: at, timelineAt: at }],
   };
   if (path === "/api/site/timeline") return { filters: { channel: "all", category: null, tag: null }, cards: [plainCard("p-1"), plainCard("p-2"), plainCard("p-3"), groupCard], nextCursor: null, hot: null, dayCounts: { "2026-10-04": 1 } };
-  if (path === "/api/site/groups/f1/reports") {
-    return { factId: "f1", reports: [
+  if (path === "/api/site/groups/reports" && url.searchParams.get("fact") === "f1") {
+    return { kind: "fact", key: "f1", reports: [
       { id: "rep-1", title: "代表文章", source: { name: "Fixture" }, timelineAt: at, originalUrl: "https://example.org/1" },
       { id: "other-2", title: longTitle, source: { name: "Fixture" }, timelineAt: at, originalUrl: "https://example.org/2" },
     ] };

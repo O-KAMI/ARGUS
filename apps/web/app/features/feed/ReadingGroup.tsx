@@ -1,4 +1,5 @@
-// Duplicate reports of one news fact. Desktop expands inline; phones use a sheet.
+// The reports a folded card stands for: one news fact, or one asset several posts recommend.
+// Desktop expands inline; phones use a sheet.
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation } from "react-router";
 import { Collapse } from "../../components/ui/Presence";
@@ -12,10 +13,21 @@ import { isReload } from "../../lib/restore";
 import { listPath, filterParams } from "../../lib/seo";
 import { sessionCache } from "../../lib/session-cache";
 
-const reportsUrl = (factId: string, filters: TimelineFilters | undefined) =>
-  listPath(`/api/site/groups/${encodeURIComponent(factId)}/reports`, filters ? filterParams(filters) : {});
+const reportsUrl = (group: GroupInfo, filters: TimelineFilters | undefined) =>
+  listPath("/api/site/groups/reports", {
+    ...(group.kind === "fact" ? { fact: group.key } : { asset: group.key }),
+    ...(filters ? filterParams(filters) : {}),
+  });
 
-const labelOf = (group: GroupInfo) => (group.additionalSourceCount > 0 ? `另外 ${group.additionalSourceCount} 家也报道了` : `${group.reportCount} 篇报道`);
+/** An asset's other posts are counted in 篇 (people), a fact's other reports in 家 (outlets). */
+const labelOf = (group: GroupInfo) =>
+  group.kind === "asset"
+    ? `另外 ${group.reportCount - 1} 篇也推荐了它`
+    : group.additionalSourceCount > 0
+      ? `另外 ${group.additionalSourceCount} 家也报道了`
+      : `${group.reportCount} 篇报道`;
+
+const sheetTitle = (group: GroupInfo) => (group.kind === "asset" ? "推荐它的其他内容" : "这件事的其他报道");
 
 // The groups left open in each history entry, with what they showed (null: still loading): back from an
 // item finds them open again. In memory for back within the app; in session storage for a page the
@@ -33,8 +45,7 @@ function remember(entry: string, key: string, reports: GroupReport[] | null | un
   openGroups.set(entry, { savedAt: Date.now(), groups: next });
 }
 
-/**
- * A fact's reports under the list's filters, read by `load`. Read `again` (on return), the rows shown stay
+/** The group's reports under the list's filters, read by `load`. Read `again` (on return), the rows shown stay
  * until the new ones arrive, and a group with no reports left shows none.
  */
 function useReports(url: string, saved: GroupReport[] | null = null) {
@@ -91,13 +102,13 @@ function LoadState({ loading, error, onRetry, empty }: { loading: boolean; error
   return null;
 }
 
-/** "另外 N 家也报道了": the other reports of the fact the card stands for, behind a toggle. */
+/** "另外 N 家也报道了" / "另外 N 篇也推荐了它": the group's other reports, behind a toggle. */
 export function GroupSources({ group, filters, parentId }: { group: GroupInfo; filters?: TimelineFilters; parentId: string }) {
   const entry = useLocation().key;
-  const key = `${group.factId}|${parentId}`;
+  const key = `${group.kind}:${group.key}|${parentId}`;
   const saved = openGroups.peek(entry)?.groups[key];
   const [open, setOpen] = useState(saved !== undefined);
-  const reports = useReports(reportsUrl(group.factId, filters), saved);
+  const reports = useReports(reportsUrl(group, filters), saved);
   // Back in this history entry, an open group comes back open and is read once more; so after the browser
   // reloaded the page on back/forward (never on a reader's reload, which asks for a fresh list).
   useEffect(() => {
@@ -146,7 +157,7 @@ export function GroupSources({ group, filters, parentId }: { group: GroupInfo; f
   );
 }
 
-/** Phones: the same duplicate reports as the desktop expansion. */
+/** Phones: the same group reports as the desktop expansion. */
 export function GroupButton({ group, filters, parentId }: { group: GroupInfo; filters?: TimelineFilters; parentId: string }) {
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -179,14 +190,14 @@ function GroupSheet({ open, onClose, group, filters, parentId }: {
   filters?: TimelineFilters;
   parentId: string;
 }) {
-  const reports = useReports(reportsUrl(group.factId, filters));
+  const reports = useReports(reportsUrl(group, filters));
   useEffect(() => {
     if (open && !reports.reports && !reports.loading && !reports.error) void reports.load();
   }, [open]);
   const others = (reports.reports ?? []).filter((r) => r.id !== parentId);
   const read = useReadSet();
   return (
-    <Sheet open={open} onClose={onClose} title="这件事的其他报道">
+    <Sheet open={open} onClose={onClose} title={sheetTitle(group)}>
       <div className="px-5">
         <ul className="divide-y divide-line-soft">
           {others.map((r) => (

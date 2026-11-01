@@ -88,8 +88,11 @@ test("a rapid fourth report is not saved, repeated requests do not extend the pa
 test("daily cleanup removes expired temporary state and bans, preserves manual bans, and the admin hides expired entries", async () => {
   const { dailyRetention } = await import("@aihot/backend/operations/retention");
   const { listFeedback } = await import("@aihot/backend/admin/feedback");
-  await sql`INSERT INTO feedback_bans (source_hash, reason, created_by, expires_at) VALUES ('expired-test','temporary','feedback-auto',now()-interval '1 second'), ('manual-test','manual','test',null)`;
-  await sql`INSERT INTO feedback_submission_state (source_hash, expires_at) VALUES ('expired-test',now()-interval '1 second')`;
+  // Expired by a wide margin, not by a second: the rows carry the database's clock while the retention
+  // run compares them against the runner's, and the two are different clocks (the Docker VM drifts from
+  // macOS by seconds after the host sleeps). Only "already expired" is being asserted here.
+  await sql`INSERT INTO feedback_bans (source_hash, reason, created_by, expires_at) VALUES ('expired-test','temporary','feedback-auto',now()-interval '1 hour'), ('manual-test','manual','test',null)`;
+  await sql`INSERT INTO feedback_submission_state (source_hash, expires_at) VALUES ('expired-test',now()-interval '1 hour')`;
   assert.ok(!(await listFeedback({})).bans.some(b => b.source_hash === "expired-test"));
   const result = await dailyRetention();
   assert.ok(result.expiredFeedbackBans >= 1);

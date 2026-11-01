@@ -73,14 +73,23 @@ export interface FeedItemSummary extends Pick<ItemSummary, "id" | "title" | "sum
   sameEvent?: { id: string; title: string } | null;
 }
 
+/**
+ * What a folded card stands for: one news fact, or one asset (a repository, a package, a page) several
+ * posts recommend. The asset fold wins where both apply — two posts about the same repository are one
+ * card even when they were also grouped as one fact.
+ */
+export type GroupKind = "fact" | "asset";
+
 export interface GroupInfo {
-  factId: string;
-  /** Other public sources reporting this same news fact, under the current filters. */
+  kind: GroupKind;
+  /** The fact's public id, or the asset key. Only an opaque handle: it keys the reader's own cache and the reports request. */
+  key: string;
+  /** Other public sources with a report in this group, under the current filters. */
   additionalSourceCount: number;
-  /** Distinct public reports of this fact. */
+  /** Distinct public reports in this group. */
   reportCount: number;
   /**
-   * The selected reports of this fact under the current filters. The timeline's reader-side unread
+   * The selected reports of this group under the current filters. The timeline's reader-side unread
    * filter keeps a group while any of them is unread; the timeline fills it, other callers omit it.
    */
   memberIds?: string[];
@@ -164,7 +173,7 @@ export interface SiteItemDetail extends ItemSummary {
   bodyLanguage: "zh" | "original";
 }
 
-/** A fact's public reports under the list's filters: what "另外 N 家也报道了" opens. */
+/** A group's public reports under the list's filters: what the card's toggle opens. */
 export interface GroupReport {
   id: string;
   title: string;
@@ -174,7 +183,8 @@ export interface GroupReport {
 }
 
 export interface GroupReportsResponse {
-  factId: string;
+  kind: GroupKind;
+  key: string;
   reports: GroupReport[];
 }
 

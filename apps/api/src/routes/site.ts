@@ -12,6 +12,7 @@ import { loadPool, SearchBusyError } from "@aihot/backend/publication/pool";
 import { loadTimeline } from "@aihot/backend/publication/timeline";
 import { loadStoryFollowups } from "@aihot/backend/publication/followups";
 import { loadGroupReports } from "@aihot/backend/publication/groups";
+import { isAssetKey } from "@aihot/backend/lib/asset-key";
 import { hotSearchLinks, loadHotStrip } from "@aihot/backend/publication/hot";
 import { loadChangelog, siteMeta } from "@aihot/backend/site/meta";
 import { loadContact, loadMakerAvatar } from "@aihot/backend/site/contact";
@@ -119,8 +120,16 @@ export function registerSite(app: FastifyInstance) {
     return reply.header("Cache-Control", "no-store").send(result);
   }));
 
-  app.get("/api/site/groups/:factId/reports", siteHandler(async (req, reply) => {
-    const data = await loadGroupReports({ factPublicId: (req.params as { factId: string }).factId, ...parseFilters(looseQuery(req)) });
+  // A folded card's reports. The group is named by a query, not a path, because an asset key carries
+  // slashes and a whole URL (lib/asset-key.ts).
+  app.get("/api/site/groups/reports", siteHandler(async (req, reply) => {
+    const q = looseQuery(req);
+    const fact = q.fact?.trim() || null;
+    const asset = q.asset?.trim() || null;
+    if ((fact === null) === (asset === null) || (fact !== null && !/^[\w-]{1,64}$/.test(fact)) || (asset !== null && !isAssetKey(asset))) {
+      return sendProblem(req, reply, { status: 404, code: "not_found", detail: "reading group unavailable" });
+    }
+    const data = await loadGroupReports({ kind: fact ? "fact" : "asset", key: fact ?? asset!, ...parseFilters(q) });
     if (!data) return sendProblem(req, reply, { status: 404, code: "not_found", detail: "reading group unavailable" });
     return reply.header("Cache-Control", "no-store").send(data);
   }));

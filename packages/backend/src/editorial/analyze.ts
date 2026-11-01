@@ -5,7 +5,8 @@ import { describePublicationTime } from "../sources/dates.ts";
 // revision before any step.
 //   1. prefilter: does the material belong to this industry at all (wide recall). Only BLOCK stops an
 //      item; a BLOCK on an original post without text counts as UNKNOWN;
-//   2. score: two independent scores against the source tier's threshold (industry/selection.ts) decide 精选;
+//   2. score: the source tier's threshold (industry/selection.ts) decides 精选 — two independent calls on
+//      the news track, on the learning track a second one only when the first sits on the threshold;
 //   3. structure: category, tags, subjects and the current news fact, beside scoring;
 //   4. writing, once the structure is in: the Chinese title, summary and reason by the content
 //      understanding for selected and near-selected items, by the cheaper title/summary prompts for the rest;
@@ -62,12 +63,24 @@ export const ANALYZE_PROMPT_VERSION = analyzePromptVersion("news");
 
 // Scoring
 
-/** Independent score calls per article; their sum decides, their mean (floored) is shown. */
+/** The most score calls per article; their mean decides, and its floor is shown. */
 export const SCORE_CALLS = 2;
 
 /**
- * The thresholds on the mean score, per source tier (industry/selection.ts): selected when
- * score1 + score2 >= 2 × threshold. Tiers without a threshold are not scored for 精选.
+ * Whether a first verdict is worth a second opinion. The learning track answers in three levels, so a
+ * verdict off the threshold cannot be moved by asking again: `hit` selects and `miss` does not, whatever
+ * a second call would say. Only `edge` — the level that maps onto the threshold — is a real boundary, and
+ * there the second call still vetoes. The news track keeps both calls: it averages a continuous score,
+ * where a second opinion is information rather than a coin flip. The measured flip rate and the call
+ * saving are in 项目地图.md §14.
+ */
+export function secondScoreWanted(track: Track, first: number, threshold: number): boolean {
+  return track !== "learning" || first === threshold;
+}
+
+/**
+ * The thresholds on the mean score, per source tier (industry/selection.ts): selected when the scores'
+ * mean reaches it. Tiers without a threshold are not scored for 精选.
  */
 export function tierThreshold(tier: string): number | null {
   return SELECTION.thresholds[tier] ?? null;
@@ -328,8 +341,10 @@ async function runScores(
   const values: number[] = [];
   const receiptIds: number[] = [];
   let reused = true;
-  // One after the other: the second call reuses the provider's cached prompt.
+  // One after the other: the second call reuses the provider's cached prompt, and is not made at all
+  // when the first verdict is already decisive.
   for (let i = 0; i < SCORE_CALLS; i++) {
+    if (i > 0 && !secondScoreWanted(track, values[0]!, threshold)) break;
     checkAnalysisRunning();
     try {
       // Each call is its own paid request; an explicit re-evaluation gets new ones.
@@ -337,8 +352,8 @@ async function runScores(
       if (track === "learning") {
         const res = await chatJson({ ...params, attemptTag, schema: LearningScoreSchema });
         onReceipt?.(res.receiptId);
-        // The level is mapped onto a score here, so "two independent calls, sum >= 2 x threshold" and the
-        // mean shown on the card stay exactly the machinery the news track already uses.
+        // The level is mapped onto a score here, so the mean-against-threshold rule and the score shown
+        // on the card stay exactly the machinery the news track already uses.
         values.push(SELECTION.learning.levels[res.data.level as LearningLevel]);
         if (i === 0) kinds = knownKinds(res.data.kinds);
         receiptIds.push(res.receiptId);
@@ -512,24 +527,29 @@ export function awaitsMaterial(a: AnalyzeInputArticle): boolean {
   return missingEvidence(a) && !originalPostCopy(a.xPost, a.url);
 }
 
-/** The two scores' sum; null when the scoring was refused or is incomplete. */
-function scoreSum(scores: AnalysisRun["scores"]): number | null {
-  return scores && !scores.refused && scores.values.length === SCORE_CALLS ? scores.values.reduce((total, v) => total + v, 0) : null;
+/**
+ * The mean of the calls actually made, or null when there is no verdict to average (a refusal, or no
+ * score at all). One decisive verdict is its own mean, which is what lets the learning track's one-call
+ * path and the news track's two-call path share the same rule.
+ */
+function scoreMean(scores: AnalysisRun["scores"]): number | null {
+  if (!scores || scores.refused || scores.values.length === 0 || scores.values.length > SCORE_CALLS) return null;
+  return scores.values.reduce((total, v) => total + v, 0) / scores.values.length;
 }
 
-/** The score shown: the two scores' mean, floored (it never decides a half point on its own). */
+/** The score shown: the calls' mean, floored (it never decides a half point on its own). */
 export function shownScore(scores: AnalysisRun["scores"]): number | null {
-  const sum = scoreSum(scores);
-  return sum === null ? null : Math.floor(sum / SCORE_CALLS);
+  const mean = scoreMean(scores);
+  return mean === null ? null : Math.floor(mean);
 }
 
 /**
- * The selection rule on the scores: they add up to twice the source tier's threshold (or `threshold`,
- * when an evaluation sweeps it). The item must also pass relevance (normalizeAnalysis).
+ * The selection rule on the scores: their mean reaches the source tier's threshold (or `threshold`, when
+ * an evaluation sweeps it). The item must also pass relevance (normalizeAnalysis).
  */
 export function scoresSelect(scores: AnalysisRun["scores"], threshold = scores?.threshold ?? null): boolean {
-  const sum = scoreSum(scores);
-  return sum !== null && threshold !== null && sum >= threshold * SCORE_CALLS;
+  const mean = scoreMean(scores);
+  return mean !== null && threshold !== null && mean >= threshold;
 }
 
 /** Runs the steps on the material as it is (or reuses their receipts) without writing business results. */
@@ -544,8 +564,8 @@ export async function runAnalysis(a: AnalyzeInputArticle, opts: StepOpts = {}): 
   const structure = runStructure(a, opts).then((value) => ({ value }), (error: unknown) => ({ error }));
   try {
     const scores = await runSelectionScores(a, opts);
-    const sum = scoreSum(scores);
-    const near = scoresSelect(scores) || (sum !== null && sum > UNDERSTAND_FLOOR * SCORE_CALLS);
+    const mean = scoreMean(scores);
+    const near = scoresSelect(scores) || (mean !== null && mean > UNDERSTAND_FLOOR);
     const s = await structure;
     if ("error" in s) throw s.error;
     const writing: NonNullable<AnalysisRun["writing"]> = original
