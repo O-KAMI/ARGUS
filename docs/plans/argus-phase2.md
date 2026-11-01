@@ -7,7 +7,7 @@
 > **本文是 2026-10-30 的运行记录，其中 RSS 相关部分已被 2026-10-31 的整体优化（P1）取代，不再重写：**
 > 35 个 RSS 源（19 个独立源 + 16 个 X 第 2 层）连同其 3246 篇材料已从库中删除，行业新闻改由 AIHOT 镜像提供；
 > X 采集回到 **FxTwitter → SocialData** 两层，`sources/x-rss-links.ts` 映射表与 `scripts/convert-x-to-rss.ts`
-> 一并移除。RSS 仍是可用的信源类型，只是本站当前没有配置任何 RSS 源。现行口径见 `README.md` 与 `docs/argus-phase3.md`。
+> 一并移除。RSS 仍是可用的信源类型，只是本站当前没有配置任何 RSS 源。现行口径见 `README.md` 与 `docs/plans/argus-phase3.md`。
 
 ## 1. 模型接入
 
@@ -23,7 +23,7 @@
 `.env` 关键项：
 
 ```env
-LLM_BASE_URL=http://llm-model-hub-apis.sf-express.com/v1
+LLM_BASE_URL=http://<你的内网模型网关>/v1
 LLM_MODEL=tencentcloud/deepseek-v4.1-flash-1017
 LLM_VISION=true
 LLM_REASONING_TOKENS=8000

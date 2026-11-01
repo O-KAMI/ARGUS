@@ -8,10 +8,9 @@
 
 ARGUS 是一个个人优先、默认私有的 AI 情报站：持续追踪官方博客、技术社区、开源仓库与指定账号，把分散内容标准化、去重、评分、翻译与聚类，每天早上 08:00 出一份中文日报，并按主题沉淀为可检索的长期知识库。
 
-- 品牌与 UI 规范：与本仓库同级的开发交付包中的 `design.md`
-- 开发方案：同一交付包中的 `ARGUS_最终版开发方案.md`
+- 产品与视觉方案、各阶段交付记录：统一在 [`docs/plans/`](docs/plans/README.md)
+- 交接与验收上下文（功能逻辑、坑点、待办、经验）：[`项目地图.md`](项目地图.md)
 - 上游框架与基线说明：[`docs/upstream-aihot-readme.md`](docs/upstream-aihot-readme.md)
-- 本阶段交付记录：[`docs/argus-phase1.md`](docs/argus-phase1.md)、[`docs/argus-phase2.md`](docs/argus-phase2.md)
 
 ## 已实现（Phase 1）
 
@@ -22,7 +21,7 @@ ARGUS 是一个个人优先、默认私有的 AI 情报站：持续追踪官方�
 - **导航与 IA**：首页、全部情报、热点、AI 日报、主题知识库、收藏与待读、Agent 接入、关于、更新日志、反馈、账户。
 - **AI 主题**：Vibe Coding、Agent / Skills / MCP、UI/UX、RAG、推理、多模态、开源、论文、行业趋势等主题页。
 - **三组内容筛选**：首页和全部情报都能按内容类型、技术方向、来源（X / 行业镜像 / YouTube / Bilibili / 公众号 / GitHub / 知识星球 / 网站）组合筛选，选中结果写进网址。
-- **首批信源**：23 个公开 RSS（官方博客、arXiv、Hacker News、LangChain、Vercel 等），字段与分级沿用框架。
+- **信源是双轨**（2026-10-31 定型）：行业新闻与发布类走**行业镜像**（`modules/aihot/`，worker 每 15 分钟读一份公开榜单，滚动 7 天，不落历史库）；自有信源**只有 44 个指定账号**，全部标 `track:learning`，判的是「这条能不能提高我的 AI 水平」。RSS 类型框架仍支持，但本站**当前零 RSS 源**（原 23 个连同 3246 篇材料已于 2026-10-31 清除）。
 - **安全**：密码只存服务端；日志脱敏；私有页面 `no-store` + `noindex`；SSR 使用独立内部令牌访问 API。
 
 ## 技术栈
@@ -76,8 +75,8 @@ Docker 部署见 [`docs/deploy.md`](docs/deploy.md)。使用 Docker Compose 时�
 ARGUS 通过 OpenAI 兼容接口调用模型。生产配置示例（密钥只写 `.env`，不提交）：
 
 ```env
-LLM_BASE_URL=http://llm-model-hub-apis.sf-express.com/v1
-LLM_API_KEY=<SF 模型网关密钥>
+LLM_BASE_URL=http://<你的内网模型网关>/v1
+LLM_API_KEY=<模型网关密钥>
 LLM_MODEL=tencentcloud/deepseek-v4.1-flash-1017
 LLM_VISION=true
 LLM_REASONING_TOKENS=8000

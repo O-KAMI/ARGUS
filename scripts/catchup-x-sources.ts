@@ -1,6 +1,7 @@
 // Re-queues X sources that never got a cursor, so the worker reads their first free FxTwitter page now
-// instead of waiting for the normal schedule. The worker still follows FxTwitter → RSS → SocialData;
-// SocialData stays behind the budget, and a source whose FxTwitter answers 404 keeps using its RSS.
+// instead of waiting for the normal schedule. The worker follows FxTwitter → SocialData (the RSS bridge
+// layer was removed on 2026-10-31); SocialData stays behind the budget, and a source whose FxTwitter
+// answers 404 waits for the paid layer rather than falling back to a feed.
 //   node --env-file=.env scripts/catchup-x-sources.ts [--dry-run]
 import { closeDb, sql } from "@aihot/backend/db";
 
