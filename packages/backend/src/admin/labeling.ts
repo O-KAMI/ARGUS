@@ -60,7 +60,7 @@ export async function listLabeling(f: { state?: string; page?: number } = {}): P
  * The gold case of an item, in the shape scripts/eval-selection-core.ts reads: the material as the
  * scoring step sees it, the source facts that fix its track and threshold, and where the operator put it.
  */
-function goldCase(item: AnalyzeInputArticle, language: string | null, track: Track, stratum?: string) {
+function goldCase(item: AnalyzeInputArticle, language: string | null, track: Track, stratum?: string, split?: GoldSplit) {
   const t = translateInputOf(item);
   // The gold reader rebuilds the score input from `material` alone and has no quoted-post field of its
   // own, so a quoted post travels inside bodyOriginal; left out, a re-run would score other material.
@@ -76,15 +76,22 @@ function goldCase(item: AnalyzeInputArticle, language: string | null, track: Tra
       bodyOriginal: `${t.text.trim()}${quoted}`.trim() || null,
     },
     sourceFacts: { sourceKind: t.sourceKind, sourceTier: item.source.tier, firstParty: item.source.firstParty, language, track },
-    samplingContext: stratum ? { samplingStratum: stratum } : {},
+    // `benchmarkSplit` is what eval-tools' sampleCases filters on, so a label without it can only ever be
+    // run as `--split all`: the holdout the calibration method asks for has to be named here to exist.
+    samplingContext: { ...(stratum ? { samplingStratum: stratum } : {}), ...(split ? { benchmarkSplit: split } : {}) },
   };
 }
+
+/** The two halves of a calibration set: prompt tuning reads the development half, the holdout is checked last. */
+const GOLD_SPLITS = ["development", "holdout"] as const;
+export type GoldSplit = (typeof GOLD_SPLITS)[number];
 
 const LabelSchema = z.object({
   decision: z.enum(["select", "reject"]),
   reason: z.string().trim().min(1),
   version: z.number().int().nonnegative(),
   stratum: z.string().trim().min(1).max(60).optional(),
+  split: z.enum(GOLD_SPLITS).optional(),
 });
 
 /**
@@ -99,7 +106,7 @@ export async function labelSelection(id: string, input: unknown, actor: string):
     sql<{ language: string | null }[]>`SELECT language FROM articles WHERE id = ${id}`,
   ]);
   if (!item || !meta) throw new Conflict("内容不存在");
-  const gold = goldCase(item, meta.language, trackOf(item.source.tags), label.stratum);
+  const gold = goldCase(item, meta.language, trackOf(item.source.tags), label.stratum, label.split);
   await overrideFields(id, { fields: { selected: label.decision === "select" }, reason: label.reason, version: label.version }, actor);
   await sql`
     INSERT INTO selection_gold (case_id, article_id, track, material, source_facts, sampling_context, decision, actor)
