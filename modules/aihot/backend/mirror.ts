@@ -194,6 +194,28 @@ export async function storeItems(items: readonly UpstreamItem[], ranking: Readon
  * mirrored row is written and never moved (`discovered_at`): an item upstream's window still holds is
  * re-read as the same article, not deleted and stored again.
  */
+/**
+ * The mirror's own source row, kept as honest as the engine's: an admin listing that says "never read" while
+ * this module reads every fifteen minutes is a health report nobody can act on. `last_ok_at` is the last pass
+ * that got an answer, and a pass that heard nothing at all counts as a failure the way the collector counts
+ * one, so the same five-failure path to `failing` applies here.
+ */
+export async function stampMirrorSource(reads: readonly { status: number | null }[], problems: number, db: Db = sql): Promise<void> {
+  const answered = reads.some((read) => read.status !== null);
+  if (answered && problems === 0) {
+    await db`UPDATE sources SET last_fetch_at = now(), last_ok_at = now(), fail_count = 0, last_error = NULL,
+      health = 'ok', updated_at = now() WHERE id = ${MIRROR_SOURCE_ID}`;
+    return;
+  }
+  await db`
+    UPDATE sources SET last_fetch_at = now(),
+      last_ok_at = CASE WHEN ${answered} THEN now() ELSE last_ok_at END,
+      fail_count = CASE WHEN ${answered} THEN 0 ELSE fail_count + 1 END,
+      health = CASE WHEN ${answered} OR fail_count + 1 < 5 THEN 'degraded' ELSE 'failing' END,
+      last_error = ${answered ? "本轮部分地址没有读到" : "本轮没有读到任何地址"},
+      updated_at = now() WHERE id = ${MIRROR_SOURCE_ID}`;
+}
+
 export async function retireMirrored(now = new Date()): Promise<{ retired: number; pinned: number }> {
   const cutoff = new Date(now.getTime() - MIRROR_WINDOW_MS);
   const rows = await sql<{ id: string; pinned: boolean }[]>`

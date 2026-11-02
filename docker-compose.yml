@@ -54,6 +54,9 @@ services:
       <<: *backend-env
       API_HOST: 0.0.0.0
       API_PORT: "3001"
+      # The same proxy switch the web process has: behind a TLS-terminating proxy both need it, and one
+      # that sets X-Forwarded-Proto for the cookie while the other ignores it is a half-trusting entry.
+      TRUST_PROXY: ${TRUST_PROXY:-false}
     depends_on:
       setup:
         condition: service_completed_successfully

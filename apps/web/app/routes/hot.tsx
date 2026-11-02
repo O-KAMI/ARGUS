@@ -292,6 +292,11 @@ export default function HotPage() {
   const mirror = hot.mirror ?? null;
   const count = hot.entries.length || 10;
   const scope = mirror ? `${mirror.label} · 照读上游公开榜单` : "跨源讨论热度";
+  // 镜像榜单的两半各有自己的读取时间：分属两次读取或落后于设定节奏时如实说出来，读数是新的就不再多占一行。
+  const readingNote = !mirror?.asOf
+    ? null
+    : mirror.mixed ? `两份读数分属不同时刻（${monthDayTime(mirror.asOf)} 起），顺序是混合快照`
+      : mirror.stale ? `读数截至 ${monthDayTime(mirror.asOf)}` : null;
   return (
     <div className="pb-10">
       <PhoneBar
@@ -306,6 +311,7 @@ export default function HotPage() {
                 <span className="num">{monthDayTime(hot.computedAt)}</span> 更新
               </>
             )}
+            {readingNote && <>{" · "}{readingNote}</>}
           </>
         }
         actions={

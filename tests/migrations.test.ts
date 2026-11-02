@@ -137,3 +137,18 @@ test("IF NOT EXISTS must not turn an invalid or wrong-table index into a success
   })), /different table/);
   assert.equal((await db`SELECT 1 FROM schema_migrations WHERE name IN ('9006_invalid.sql', '9007_wrong_table.sql')`).length, 0);
 });
+
+// The ledger keys on a file name, so an edited historical migration is never re-run: the schema keeps what
+// was applied first while the repository shows something else. The recorded checksum makes that a failure
+// at migrate time instead of a silent difference between the two.
+test("a migration file edited after it was applied fails the next migrate", async () => {
+  const name = "9002_ledger_checksum.sql";
+  const root = fixture({ [`database/migrations/${name}`]: "CREATE TABLE migration_ledger_checksum (id int);" });
+  await runMigrations(db, root);
+  const [recorded] = await db`SELECT checksum FROM schema_migrations WHERE name = ${name}`;
+  assert.match(String(recorded?.checksum), /^[0-9a-f]{64}$/, "a newly applied row records the file's checksum");
+  writeFileSync(path.join(root, "database/migrations", name), "CREATE TABLE migration_ledger_checksum (id bigint);");
+  await assert.rejects(runMigrations(db, root), new RegExp(name));
+  await db`DELETE FROM schema_migrations WHERE name = ${name}`;
+  await db`DROP TABLE IF EXISTS migration_ledger_checksum`;
+});

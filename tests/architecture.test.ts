@@ -264,3 +264,34 @@ test("pages are prefetched only through IntentLink", () => {
     .map(({ at }) => at);
   assert.deepEqual(found, [], "link with IntentLink (in PillTabs, prefetchOnPress), which prefetches when the reader presses");
 });
+
+// `npm ci` resolves every workspace in the root package.json before it reads any source, so the Dockerfile
+// must COPY each workspace's package.json above the `npm ci` line. The mirror module was added and the build
+// kept working only because the image built from a warm cache; a clean `docker build --no-cache` failed on
+// the missing modules/aihot/package.json. This rule is the check that no workspace joins without it.
+test("every workspace's package.json is pre-copied before npm ci in the Dockerfile", () => {
+  const root = JSON.parse(readFileSync(path.join(ROOT, "package.json"), "utf8")) as { workspaces: string[] };
+  const dirs = root.workspaces.flatMap((pattern) => {
+    if (!pattern.endsWith("/*")) return [pattern];
+    const parent = path.join(ROOT, pattern.slice(0, -2));
+    if (!existsSync(parent)) return [];
+    return readdirSync(parent, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && existsSync(path.join(parent, entry.name, "package.json")))
+      .map((entry) => `${pattern.slice(0, -2)}/${entry.name}`);
+  });
+  const dockerfile = readFileSync(path.join(ROOT, "Dockerfile"), "utf8");
+  const beforeCi = dockerfile.slice(0, dockerfile.indexOf("RUN npm ci"));
+  const missing = dirs.filter((dir) => !beforeCi.includes(`COPY ${dir}/package.json ${dir}/`));
+  assert.deepEqual(missing, [], `add COPY <workspace>/package.json <workspace>/ above RUN npm ci for: ${missing.join(", ")}`);
+});
+
+// Forwarded headers name a client and decide a cookie's Secure flag, so the API reads them only when the
+// operator says a proxy stands in front of it. Hard-coded `trustProxy: true` let any caller pick its own
+// rate-limit bucket by sending X-Forwarded-For; the web process already had the TRUST_PROXY switch.
+test("the API trusts forwarded headers only behind TRUST_PROXY", () => {
+  const app = readFileSync(path.join(ROOT, "apps/api/src/app.ts"), "utf8");
+  assert.match(app, /trustProxy:\s*process\.env\.TRUST_PROXY === "true"/, "read the switch instead of hard-coding proxy trust");
+  assert.doesNotMatch(app, /trustProxy:\s*true\b/, "apps/api must not trust proxies unconditionally");
+  const compose = readFileSync(path.join(ROOT, "docker-compose.yml"), "utf8");
+  assert.match(compose, /services:[\s\S]*?\n  api:[\s\S]*?TRUST_PROXY:/, "compose must pass TRUST_PROXY to the api, not only to web");
+});

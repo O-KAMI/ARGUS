@@ -27,17 +27,33 @@ async function mirrorAlerts(now: number): Promise<Finding[]> {
       action: "看一次 aihot.mirror 任务的运行记录，确认上游地址可达。",
     }];
   }
+  const findings: Finding[] = [];
+  // A window read only part-way is a successful HTTP read, so it never shows up as stale: it is reported on
+  // its own, because the site publishes a curated list that is not the whole curated list.
+  const cut = rows.filter((row) => row.lastError?.startsWith("truncated:"));
+  if (cut.length) {
+    findings.push({
+      key: "aihot.mirror.truncated", level: "today",
+      title: `行业镜像有 ${cut.length} 个地址只读到了窗口的一部分`,
+      impact: "本站存的精选少于上游窗口，缺的那部分不会自己补上，下一次读取仍从头开始。",
+      action: "看 last_error 里的页数；上游把窗口变长时，考虑调分页上限或缩短每次的窗口。",
+      detail: cut.map((row) => `${row.endpoint}: ${row.lastError ?? ""}`).join("；"),
+      since: cut.flatMap((row) => (row.lastOkAt ? [row.lastOkAt] : []))[0] ?? new Date(now),
+    });
+  }
   const stale = rows.filter((row) => !row.lastOkAt || now - row.lastOkAt.getTime() > STALE_AFTER_MS);
-  if (!stale.length) return [];
-  return [{
-    key: "aihot.mirror.stale", level: "today",
-    title: `行业镜像有 ${stale.length} 个地址超过两小时没有读到`,
-    impact: "榜单和镜像的资讯会停在上一次读到的内容，页面上仍会显示读取时间。",
-    heals: "上游恢复后下一次定时读取会自己接上。",
-    action: "看 aihot.mirror 的运行记录里的 last_error；若是限速，等它自己放开。",
-    detail: stale.map((row) => `${row.endpoint}: ${row.lastError ?? "未读到"}（上次成功 ${row.lastOkAt?.toISOString() ?? "无"}）`).join("；"),
-    since: stale.flatMap((row) => (row.lastOkAt ? [row.lastOkAt] : []))[0] ?? new Date(now),
-  }];
+  if (stale.length) {
+    findings.push({
+      key: "aihot.mirror.stale", level: "today",
+      title: `行业镜像有 ${stale.length} 个地址超过两小时没有读到`,
+      impact: "榜单和镜像的资讯会停在上一次读到的内容，页面上仍会显示读取时间。",
+      heals: "上游恢复后下一次定时读取会自己接上。",
+      action: "看 aihot.mirror 的运行记录里的 last_error；若是限速，等它自己放开。",
+      detail: stale.map((row) => `${row.endpoint}: ${row.lastError ?? "未读到"}（上次成功 ${row.lastOkAt?.toISOString() ?? "无"}）`).join("；"),
+      since: stale.flatMap((row) => (row.lastOkAt ? [row.lastOkAt] : []))[0] ?? new Date(now),
+    });
+  }
+  return findings;
 }
 
 export default defineServerModule({

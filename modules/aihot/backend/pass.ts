@@ -8,11 +8,12 @@
 // ranking the public surfaces read is never one address ahead of the other.
 import { heldFor, nextSave, readEndpoints, saveEndpoints, type EndpointRow, type EndpointSave } from "./state.ts";
 import { invalidateSnapshot } from "./hot.ts";
-import { emptyPass, ensureMirrorSource, storeItems, type MirrorPass } from "./mirror.ts";
+import { mirrorMaxSkewMinutes } from "./config.ts";
+import { emptyPass, ensureMirrorSource, stampMirrorSource, storeItems, type MirrorPass } from "./mirror.ts";
 import { rankingOf, storedHot, storedTopics, type StoredHot, type StoredTopics } from "./snapshot.ts";
 import {
   ENDPOINTS, HOT_PATH, HOT_TOPICS_PATH, readSelected, SELECTED_PATH, UPSTREAM_ORIGIN, upstreamJson,
-  type UpstreamHot, type UpstreamHotTopics,
+  type UpstreamHot, type UpstreamHotTopics, type WindowStop,
 } from "./upstream.ts";
 
 /** What one address's read ended in, as the pass reports it and the owner's alerts read it. */
@@ -38,6 +39,15 @@ export type PassReport = {
   pages: number;
   /** The window had not changed since the last pass. */
   unchanged: boolean;
+  /** The window read here is not the whole window: see `stopReason` for which page stopped it. */
+  truncated: boolean;
+  stopReason: WindowStop | null;
+  /**
+   * How far apart, in minutes, the readings this pass leaves in place were each last read. Null until every
+   * address has an answer of its own. Above `mirrorMaxSkewMinutes()` the published ranking is a mix of two
+   * moments, which the pass states instead of hiding.
+   */
+  skewMinutes: number | null;
   items: MirrorPass;
   /** What went wrong or looked odd, in the order it happened; the run is `partial` when this is not empty. */
   problems: string[];
@@ -49,6 +59,16 @@ const holdUntil = (seconds: number | null, now: Date): Date | null =>
 
 const secondsFrom = (until: Date | null, now: Date): number | null =>
   until ? Math.max(0, Math.ceil((until.getTime() - now.getTime()) / 1000)) : null;
+
+/**
+ * The minutes between the newest and the oldest of the readings a pass leaves in place. Null while fewer
+ * than two addresses have an answer of their own: one reading is not a spread.
+ */
+function skewOf(saves: readonly EndpointSave[]): number | null {
+  const times = saves.flatMap((save) => (save.lastOkAt ? [save.lastOkAt.getTime()] : []));
+  if (times.length < 2) return null;
+  return Math.round((Math.max(...times) - Math.min(...times)) / 60_000);
+}
 
 interface RankingRead<S> {
   save: EndpointSave;
@@ -137,7 +157,8 @@ async function readRanking<T, S>(
 export async function mirrorOnce(reason: string, now = new Date(), origin: string = UPSTREAM_ORIGIN): Promise<PassReport> {
   const out: PassReport = {
     reason, startedAt: now.toISOString(), finishedAt: now.toISOString(), paused: false,
-    endpoints: [], pages: 0, unchanged: false, items: emptyPass(), problems: [],
+    endpoints: [], pages: 0, unchanged: false, truncated: false, stopReason: null, skewMinutes: null,
+    items: emptyPass(), problems: [],
   };
   if (!(await ensureMirrorSource()).enabled) {
     out.paused = true;
@@ -173,25 +194,45 @@ export async function mirrorOnce(reason: string, now = new Date(), origin: strin
       const until = holdUntil(window.wait, now);
       const error = `要求等待 ${window.wait} 秒`;
       out.problems.push(`${SELECTED_PATH} ${error}，本次跳过`);
+      out.stopReason = window.stopReason;
+      out.truncated = window.truncated;
       saves.push(nextSave(previousWindow, SELECTED_PATH, { lastStatus: 429, holdUntil: until, lastError: error }));
       out.endpoints.push({ endpoint: SELECTED_PATH, status: 429, count: null, held: secondsFrom(until, now), error });
     } else if (window.unchanged) {
       out.unchanged = true;
+      out.stopReason = window.stopReason;
       saves.push(nextSave(previousWindow, SELECTED_PATH, { etag: window.etag, holdUntil: null, lastStatus: 304, lastOkAt: now, lastError: null }));
       out.endpoints.push({ endpoint: SELECTED_PATH, status: 304, count: previousWindow?.lastCount ?? null, held: null, error: null });
     } else {
       out.pages = window.pages;
+      out.stopReason = window.stopReason;
+      out.truncated = window.truncated;
       out.items = await storeItems(window.items, ranking, now);
       if (out.items.skipped) out.problems.push(`${out.items.skipped} 条未入库（缺标题、缺中文摘要、缺原文链接，或同一地址已属于本站别的信源）`);
+      // A window upstream still had more of is stored as far as it reached and said out loud, with its ETag
+      // dropped so the next pass reads from the start: a short read must not be kept as the whole window.
+      const stopped = window.truncated
+        ? `truncated: ${window.stopReason === "max-pages" ? `读到第 ${window.pages} 页上游仍说有更多` : "分页中途断了"}，本次入库 ${window.items.length} 条，下次从头再读`
+        : null;
+      if (stopped) out.problems.push(`${SELECTED_PATH} ${stopped}`);
       // A page that did not answer leaves the ETag alone (readSelected), so the next pass reads from the start.
       saves.push(nextSave(previousWindow, SELECTED_PATH, {
-        etag: window.etag, holdUntil: null, lastStatus: 200, lastCount: window.items.length, lastOkAt: now, lastError: null,
+        etag: window.etag, holdUntil: null, lastStatus: 200, lastCount: window.items.length, lastOkAt: now, lastError: stopped,
       }));
-      out.endpoints.push({ endpoint: SELECTED_PATH, status: 200, count: window.items.length, held: null, error: null });
+      out.endpoints.push({ endpoint: SELECTED_PATH, status: 200, count: window.items.length, held: null, error: stopped });
     }
   }
 
+  // The three readings are each allowed to keep an older answer, so the ranking published from them can be
+  // two moments joined together. The spread is measured and stated; above the module's own limit the pass is
+  // `partial`, which is what the owner's alerts read.
+  out.skewMinutes = skewOf(saves);
+  if (out.skewMinutes !== null && out.skewMinutes > mirrorMaxSkewMinutes()) {
+    out.problems.push(`三个地址的读数相差 ${out.skewMinutes} 分钟，本次发布的榜单是混合快照`);
+  }
+
   await saveEndpoints(saves);
+  await stampMirrorSource(out.endpoints, out.problems.length);
   // A pass that ran in this process (the administrator's manual fetch) leaves the surfaces reading what it
   // just wrote instead of the reading they cached before it.
   invalidateSnapshot();

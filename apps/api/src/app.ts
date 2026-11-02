@@ -38,7 +38,11 @@ export async function buildApp(): Promise<FastifyInstance> {
       serializers: { err: logError, req: (req) => ({ method: req.method, path: req.url.split("?")[0] }) },
     },
     logController: logs,
-    trustProxy: true,
+    // Forwarded headers are read only when the operator says a proxy stands in front of this process — the
+    // same switch the web server has. Asked for, `x-forwarded-proto` decides the session cookie's Secure
+    // flag and `x-forwarded-for` names the client a password attempt is counted against; unasked-for, a
+    // caller could send either itself: pick its own rate-limit bucket, or ask for a cookie it cannot read.
+    trustProxy: process.env.TRUST_PROXY === "true",
     genReqId: () => randomUUID(),
     bodyLimit: 10 * 1024 * 1024,
     routerOptions: { ignoreTrailingSlash: false, maxParamLength: 300 },

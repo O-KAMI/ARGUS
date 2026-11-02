@@ -29,7 +29,7 @@ const oauth = await stub(async (_hit, req) => {
   assert.ok(req.url.endsWith("/userinfo"));
   return profile;
 });
-// Production trusts its proxy, so req.protocol reads X-Forwarded-Proto.
+// This topology runs behind a proxy (TRUST_PROXY=true), so req.protocol reads X-Forwarded-Proto.
 const app = Fastify({ logger: false, trustProxy: true });
 registerAdminAuth(app);
 let writes = 0;

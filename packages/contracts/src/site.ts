@@ -254,6 +254,15 @@ export interface HotMirrorNote {
   url: string;
   /** How often this site reads it, in the words the page draws as they are. */
   pace: string;
+  /**
+   * The oldest of the readings this ranking is made of, as this site read it. The page shows it when it is
+   * behind the pace above, so a stale ranking is not drawn as a live one.
+   */
+  asOf?: string | null;
+  /** The two halves of the ranking came from different passes, so the order is a mix of two moments. */
+  mixed?: boolean;
+  /** The oldest reading in use is more than two polling intervals behind, so the ranking is stale. */
+  stale?: boolean;
 }
 
 export interface ImportantAnnouncement {

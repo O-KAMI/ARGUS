@@ -1,5 +1,6 @@
 // Applies engine and module SQL by file name. New online DDL is bounded; concurrent indexes and
 // constraint validation run separately so earlier DDL cannot hold a strong lock during a table scan.
+import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -42,17 +43,31 @@ export async function runMigrations(sql: postgres.Sql, root: string, { backupWai
     let plan: MigrationPlan = { kind: "transaction" };
     try { if (Number(migration.name.slice(0, 4)) >= FIRST_ONLINE_MIGRATION) plan = migrationPlan(text); }
     catch (error) { throw new Error(`${migration.name}: ${(error as Error).message}`, { cause: error }); }
-    return { ...migration, text, plan };
+    return { ...migration, text, plan, checksum: createHash("sha256").update(text).digest("hex") };
   });
   const session = await sql.reserve();
   try {
     await session`SET lock_timeout = '1s'`;
     await session`SET statement_timeout = '10s'`;
-    await session`CREATE TABLE IF NOT EXISTS schema_migrations (name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())`;
-    const applied = new Set((await session<{ name: string }[]>`SELECT name FROM schema_migrations`).map((row) => row.name));
+    await session`CREATE TABLE IF NOT EXISTS schema_migrations (name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now(), checksum text)`;
+    // The checksum column arrives with a migration of its own, so a database that predates it is read with
+    // no checksums: every row it holds stays unverifiable, exactly as the migration that adds the column says.
+    const [tracked] = await session<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM information_schema.columns WHERE table_name = 'schema_migrations' AND column_name = 'checksum'`;
+    const ledger = new Map((await session<{ name: string; checksum: string | null }[]>`
+      SELECT name${tracked!.n === 0 ? sql`, null::text AS checksum` : sql`, checksum`} FROM schema_migrations`).map((row) => [row.name, row.checksum]));
     let count = 0;
-    for (const { name, text, plan } of prepared) {
-      if (applied.has(name)) continue;
+    for (const { name, text, plan, checksum } of prepared) {
+      const recorded = ledger.get(name);
+      if (recorded !== undefined) {
+        // A file applied under this name must still hold what was applied. An edited historical migration is
+        // never re-run, so the schema and the file would go on disagreeing in silence; rows written before
+        // the checksum column carry null and stay unverifiable.
+        if (recorded !== null && recorded !== checksum) {
+          throw new Error(`migration ${name} was applied as ${recorded.slice(0, 12)} but the file now holds ${checksum.slice(0, 12)}: restore the file, and put a new change in a new migration`);
+        }
+        continue;
+      }
       await waitForBackupDump(session, backupWaitMs, name);
       const start = performance.now();
       try {
@@ -70,12 +85,12 @@ export async function runMigrations(sql: postgres.Sql, root: string, { backupWai
               AND c.relnamespace = (SELECT relnamespace FROM pg_class WHERE oid = to_regclass(${plan.table}))`;
           if (!index?.indisvalid) throw new Error(`index ${plan.index} is missing or invalid; inspect it and DROP INDEX CONCURRENTLY before retrying`);
           if (!index.same_table) throw new Error(`index ${plan.index} belongs to a different table`);
-          await session`INSERT INTO schema_migrations (name) VALUES (${name})`;
+          await session`INSERT INTO schema_migrations (name, checksum) VALUES (${name}, ${checksum})`;
         } else {
           await session`BEGIN`;
           try {
             await session.unsafe(text);
-            await session`INSERT INTO schema_migrations (name) VALUES (${name})`;
+            await session`INSERT INTO schema_migrations (name, checksum) VALUES (${name}, ${checksum})`;
             await session`COMMIT`;
           } catch (error) {
             await session`ROLLBACK`;

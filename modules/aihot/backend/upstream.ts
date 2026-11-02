@@ -185,9 +185,18 @@ export interface SelectedWindow {
   etag: string | null;
   pages: number;
   unchanged: boolean;
+  /**
+   * The window is not the whole window: either upstream still had more to give when this reader stopped,
+   * or a page past the first did not answer. `stopReason` says which, and the pass reports it: a short read
+   * must not look like a complete one to the owner or to the next pass.
+   */
+  truncated: boolean;
+  stopReason: WindowStop;
   /** Seconds upstream asked this reader to wait (429/503); null when it answered. */
   wait: number | null;
 }
+
+export type WindowStop = "complete" | "max-pages" | "no-cursor" | "page-failed" | "wait" | "not-modified" | "first-page-failed";
 
 /**
  * The whole curated window, page by page, deduplicated by upstream's own id. A 304 on the first page means
@@ -195,8 +204,8 @@ export interface SelectedWindow {
  */
 export async function readSelected(etag: string | null, origin: string = UPSTREAM_ORIGIN): Promise<SelectedWindow> {
   const first = await upstreamJson<UpstreamItems>(selectedPath(null), etag, origin);
-  if (first.status === 304) return { items: [], etag: first.etag, pages: 0, unchanged: true, wait: first.retryAfter };
-  if (first.status !== 200 || !first.data) return { items: [], etag: null, pages: 0, unchanged: false, wait: first.retryAfter };
+  if (first.status === 304) return { items: [], etag: first.etag, pages: 0, unchanged: true, truncated: false, stopReason: "not-modified", wait: first.retryAfter };
+  if (first.status !== 200 || !first.data) return { items: [], etag: null, pages: 0, unchanged: false, truncated: true, stopReason: "first-page-failed", wait: first.retryAfter };
   const items: UpstreamItem[] = [];
   const seen = new Set<string>();
   const take = (page: UpstreamItems) => {
@@ -212,12 +221,19 @@ export async function readSelected(etag: string | null, origin: string = UPSTREA
   let pages = 1;
   while (page?.hasMore && page.nextCursor && pages < MAX_PAGES) {
     const next = await upstreamJson<UpstreamItems>(selectedPath(page.nextCursor), null, origin);
-    if (next.status !== 200 || !next.data) return { items, etag: null, pages, unchanged: false, wait: next.retryAfter };
+    if (next.status !== 200 || !next.data) {
+      return { items, etag: null, pages, unchanged: false, truncated: true, stopReason: next.retryAfter ? "wait" : "page-failed", wait: next.retryAfter };
+    }
     take(next.data);
     page = next.data.page;
     pages += 1;
   }
-  return { items, etag: page?.hasMore ? null : first.etag, pages, unchanged: false, wait: null };
+  const truncated = Boolean(page?.hasMore);
+  return {
+    items, etag: truncated ? null : first.etag, pages, unchanged: false, truncated,
+    stopReason: truncated ? (page?.nextCursor ? "max-pages" : "no-cursor") : "complete",
+    wait: null,
+  };
 }
 
 // What an answer carries, narrowed to what this site draws. Upstream may rename or drop a field; a word

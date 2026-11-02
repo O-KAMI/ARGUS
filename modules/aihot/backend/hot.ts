@@ -13,7 +13,7 @@ import { cached, type Cached } from "@aihot/backend/lib/cache";
 import { proxiedImage, proxiedImageSet } from "@aihot/backend/media/imgproxy";
 import type { PublishedHot, PublishedHotEntry } from "@aihot/backend/modules";
 import { storyReportCondition } from "@aihot/backend/publication/scope";
-import { MIRROR_LABEL, MIRROR_SOURCE_ID, aihotConfig } from "./config.ts";
+import { MIRROR_LABEL, MIRROR_SOURCE_ID, aihotConfig, mirrorIntervalMinutes, mirrorMaxSkewMinutes } from "./config.ts";
 import type { StoredHot, StoredHotEntry, StoredParticipant, StoredTopic, StoredTopics } from "./snapshot.ts";
 import { endpointStates } from "./state.ts";
 import { HOT_PATH, HOT_TOPICS_PATH, UPSTREAM_ORIGIN } from "./upstream.ts";
@@ -33,12 +33,23 @@ export function paceOf(cron: string): string {
 interface Snapshot {
   hot: StoredHot | null;
   topics: StoredTopics | null;
+  /**
+   * When each of the two readings in use was last read whole, as the rows state it. A ranking whose two
+   * halves came from different passes is a mix of two moments, and the reader is told rather than shown a
+   * single tidy time.
+   */
+  readAt: { hot: number | null; topics: number | null };
 }
 
 async function querySnapshot(): Promise<Snapshot> {
   const rows = await endpointStates();
   const at = (endpoint: string) => rows.find((row) => row.endpoint === endpoint)?.answer ?? null;
-  return { hot: at(HOT_PATH) as StoredHot | null, topics: at(HOT_TOPICS_PATH) as StoredTopics | null };
+  const read = (endpoint: string) => rows.find((row) => row.endpoint === endpoint)?.lastOkAt?.getTime() ?? null;
+  return {
+    hot: at(HOT_PATH) as StoredHot | null,
+    topics: at(HOT_TOPICS_PATH) as StoredTopics | null,
+    readAt: { hot: read(HOT_PATH), topics: read(HOT_TOPICS_PATH) },
+  };
 }
 
 // Two rows of jsonb, the ranking's ~40 KB among them: read once every 15 seconds rather than once per hot
@@ -118,7 +129,7 @@ function coverOf(entry: StoredHotEntry): PublishedHotEntry["cover"] {
  * nothing at all, which leaves the engine's own computed ranking in place (publication/hot.ts).
  */
 export async function mirroredHot(now = new Date()): Promise<PublishedHot | null> {
-  const [{ hot, topics }, own] = await Promise.all([snapshot().get(undefined), ownReports(now)]);
+  const [{ hot, topics, readAt }, own] = await Promise.all([snapshot().get(undefined), ownReports(now)]);
   if (!hot?.entries.length) return null;
   const byStory = new Map<string, StoredTopic>();
   for (const topic of topics?.items ?? []) if (topic.storyPublicId) byStory.set(topic.storyPublicId, topic);
@@ -156,10 +167,22 @@ export async function mirroredHot(now = new Date()): Promise<PublishedHot | null
     };
   });
 
+  // The two readings the ranking is made of, as of the passes that read them: the oldest is what a reader
+  // may rely on, and a spread past the module's own limit means the halves did not come from one pass.
+  const times = [readAt.hot, topics ? readAt.topics : null].filter((t): t is number => t !== null);
+  const oldest = times.length ? Math.min(...times) : null;
+  const spread = times.length > 1 ? Math.round((Math.max(...times) - Math.min(...times)) / 60_000) : 0;
+  const behind = oldest !== null ? Math.round((now.getTime() - oldest) / 60_000) : 0;
+
   return {
     computedAt: hot.computedAt,
     windowHours: hot.windowHours,
-    mirror: { label: MIRROR_LABEL, url: UPSTREAM_HOT_PAGE, pace: paceOf(aihotConfig.refreshCron) },
+    mirror: {
+      label: MIRROR_LABEL, url: UPSTREAM_HOT_PAGE, pace: paceOf(aihotConfig.refreshCron),
+      asOf: oldest === null ? null : new Date(oldest).toISOString(),
+      mixed: spread > mirrorMaxSkewMinutes(),
+      stale: behind > 2 * mirrorIntervalMinutes(),
+    },
     entries,
   };
 }

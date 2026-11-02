@@ -145,6 +145,19 @@ const stored = (result: StoreResult) => {
 const clearAsks = () => { asked.length = 0; seenHeaders.length = 0; };
 const pathAsked = (path: string) => asked.filter((a) => a.startsWith(path)).length;
 
+/** The module's own valve, opened for one call and put back: the alert reads it when it is asked, not at import. */
+async function withValve<T>(open: boolean, run: () => Promise<T> | T): Promise<T> {
+  const previous = process.env.AIHOT_MIRROR_ENABLED;
+  if (open) process.env.AIHOT_MIRROR_ENABLED = "true";
+  else delete process.env.AIHOT_MIRROR_ENABLED;
+  try {
+    return await run();
+  } finally {
+    if (previous === undefined) delete process.env.AIHOT_MIRROR_ENABLED;
+    else process.env.AIHOT_MIRROR_ENABLED = previous;
+  }
+}
+
 const counts = async () => {
   const rows = await sql<{ a: number; p: number; n: number; r: number; d: number }[]>`
     SELECT (SELECT count(*) FROM articles WHERE source_id = ${MIRROR_SOURCE_ID})::int AS a,
@@ -298,6 +311,12 @@ test("one pass reads all three addresses, keeps what each answered, and stores t
   assert.equal(hot!.policy, null, "the catalogue stated no licence header, and none is invented");
   assert.equal((hot!.answer as { entries: unknown[] }).entries.length, 3);
   assert.equal((topics!.answer as { items: { id: string }[] }).items[0].id, ITEM.a);
+  // The module keeps its own state rows, but the engine's source list reads `sources`: a pass that left the
+  // row saying "never read" would make the admin's health column unusable for the mirror.
+  const [source] = await sql<{ health: string; ok: boolean }[]>`
+    SELECT health, (last_ok_at IS NOT NULL) AS ok FROM sources WHERE id = ${MIRROR_SOURCE_ID}`;
+  assert.equal(source!.health, "ok", "a pass that read all three stamps the mirror's own source row");
+  assert.equal(source!.ok, true);
   assert.equal(window!.answer, null, "the window is stored as this site's own material, not kept as somebody else's list");
 
   // Every request states what this reader is, as its terms ask of an automated one.
@@ -584,4 +603,54 @@ test("the mirror's own reading rhythm, and what it says about itself to the mach
   assert.deepEqual(aihot.independentSelectedSources, [MIRROR_SOURCE_ID], "a mirrored report never shares a display seat with this site's own");
   assert.deepEqual(aihot.platforms, { aihot: [MIRROR_SOURCE_ID] });
   assert.equal(ENDPOINTS.length, 3);
+});
+
+// A window upstream still had more of is the one case where every request succeeded and the mirror is still
+// short: a 200 on every page, stopped only by this reader's own cap. Without a stated truncation the next
+// pass would treat a partial window as the whole one, and the owner would see nothing but a healthy row.
+test("a window that does not end inside the page cap is stored as far as it reached and said so", async () => {
+  route = (url) => url.pathname !== "/api/v1/items" ? fixture(url) : {
+    status: 200, etag: `"loop-${T}"`,
+    body: { schemaVersion: 1, items: [item(`loop-${url.searchParams.get("cursor") ?? "first"}-${T}`, "loop")], page: { count: 1, hasMore: true, nextCursor: "again" } },
+  };
+  clearAsks();
+  const at = clock("2026-11-01T05:00:00.000Z");
+  const report = await mirrorOnce("schedule", at, ORIGIN);
+  assert.equal(report.truncated, true);
+  assert.equal(report.stopReason, "max-pages");
+  assert.equal(report.pages, 6, "the reader stops on its own cap, not where upstream ended");
+  assert.match(report.problems.join("；"), /读到第 6 页上游仍说有更多/);
+  const row = (await readEndpoints([SELECTED_PATH])).get(SELECTED_PATH)!;
+  assert.equal(row.lastStatus, 200, "upstream answered every page; it is the read that is incomplete");
+  assert.match(String(row.lastError), /^truncated: /);
+  assert.equal(row.etag, null, "a short window is not the whole window: the next pass reads afresh instead of accepting a 304");
+  const findings = await withValve(true, () => aihot.alerts?.(at.getTime() + 60_000));
+  assert.ok(findings?.some((f) => f.key === "aihot.mirror.truncated"), "a successful but short read still reaches the owner");
+  route = fixture;
+});
+
+// Each address keeps its own last reading when it cannot be read, so the published ranking can be two
+// moments joined. The spread is measured, said in the pass, and shown on the page rather than drawn as one
+// tidy update time.
+test("a ranking whose halves come from different passes is published as the mix it is", async () => {
+  route = (url) => url.pathname === HOT_TOPICS_PATH ? { status: 500 } : fixture(url);
+  const at = clock("2026-11-01T05:40:00.000Z");
+  const report = await mirrorOnce("schedule", at, ORIGIN);
+  assert.equal(report.skewMinutes, 40, "this pass read the page ranking; the machine one is from 05:00");
+  assert.match(report.problems.join("；"), /混合快照/);
+  route = fixture;
+  invalidateSnapshot();
+  const mixed = await mirroredHot(clock("2026-11-01T05:41:00.000Z"));
+  assert.equal(mixed?.mirror.mixed, true);
+  assert.equal(mixed?.mirror.asOf, "2026-11-01T05:00:00.000Z", "the oldest reading in use is what a reader may rely on");
+  assert.equal(mixed?.mirror.stale, true, "and it is past two polling intervals, so the page says the reading is behind");
+
+  clearAsks();
+  const whole = await mirrorOnce("schedule", clock("2026-11-01T05:45:00.000Z"), ORIGIN);
+  assert.equal(whole.skewMinutes, 0, "both halves read in one pass are one moment again");
+  assert.equal(whole.problems.length, 0);
+  invalidateSnapshot();
+  const aligned = await mirroredHot(clock("2026-11-01T05:46:00.000Z"));
+  assert.equal(aligned?.mirror.mixed, false);
+  assert.equal(aligned?.mirror.stale, false);
 });
