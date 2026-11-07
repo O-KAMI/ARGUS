@@ -33,6 +33,7 @@ const repo = (githubId: number | null, fullName: string, extra: Partial<RepoInpu
   updatedAt: null,
   pushedAt: null,
   matchedTopics: [],
+  profile: "complete",
   ...extra,
 });
 
@@ -256,4 +257,34 @@ test("the detail, category and status reads answer what the api promises", async
   assert.ok(status.aiRepositories >= 2);
   assert.equal(typeof status.tokenConfigured, "boolean");
   assert.equal(await count("github_repositories") > 0, true);
+});
+
+// 审计 2026-11-04 四.8：Search 的答复是完整画像，它的空值是「确认没有」（下架主页、清空 topics、取消归档）；
+// 趋势卡片只带部分字段，它的沉默必须保留存量值。补 github_id、语言、Fork、license、homepage 不再是 unchanged。
+test("a Search run's confirmed absences clear, and a trending card's silences keep", async () => {
+  const first = await collect([repo(3001, "meta/fill", {
+    description: "Old.", homepage: "https://old.example", language: "Go", licenseSpdxId: "MIT",
+    topics: ["llm"], isArchived: true, stargazersCount: 5,
+  })]);
+  const pk = first.pks.get("meta/fill")!;
+  const second = await collect([repo(3001, "meta/fill", { description: "Old.", language: "Rust", stargazersCount: 5 })]);
+  assert.equal(second.updated, 1, "cleared and filled fields are a visible update, not 'unchanged'");
+  const [row] = await sql<{ homepage: string | null; license_spdx_id: string | null; topics: string[]; is_archived: boolean; language: string | null }[]>`
+    SELECT homepage, license_spdx_id, topics, is_archived, language FROM github_repositories WHERE pk = ${pk}`;
+  assert.deepEqual([row!.homepage, row!.license_spdx_id, row!.topics, row!.is_archived, row!.language], [null, null, [], false, "Rust"]);
+  const third = await collect([repo(null, "meta/fill", { stargazersCount: 5, profile: "partial" })]);
+  assert.equal(third.unchanged, 1, "a card that carries none of these fields changes none");
+  const [still] = await sql<{ language: string | null; topics: string[]; is_archived: boolean }[]>`
+    SELECT language, topics, is_archived FROM github_repositories WHERE pk = ${pk}`;
+  assert.deepEqual([still!.language, still!.topics, still!.is_archived], ["Rust", [], false]);
+});
+
+test("only classification evidence sends a row back to the classifier", async () => {
+  const first = await collect([repo(3002, "meta/lang-only", { description: "Desc.", language: "Go", stargazersCount: 1 })]);
+  assert.equal(first.toClassify.length, 1);
+  const second = await collect([repo(3002, "meta/lang-only", { description: "Desc.", language: "Rust", stargazersCount: 1 })]);
+  assert.equal(second.updated, 1);
+  assert.equal(second.toClassify.length, 0, "a language fill is visible but is not new classification evidence");
+  const third = await collect([repo(3002, "meta/lang-only", { description: "Desc, rewritten.", language: "Rust", stargazersCount: 1 })]);
+  assert.equal(third.toClassify.length, 1, "a rewritten description is new evidence");
 });

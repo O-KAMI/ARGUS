@@ -87,8 +87,8 @@
      and a 21:9 screen one of about 2.7:1. 236px is the sidebar and the main area's padding. */
   --page-max-wide: max(1200px, calc(270dvh - 236px));
   --page-max-reading: max(1100px, calc(200dvh - 236px));
-  /* The phone shell (below lg): the top bar's height, which sticky headers inside pages sit below, and
-     side gutters that keep clear of the notch in landscape. The desktop shell has no top bar. */
+  /* The shell's top bar height at this breakpoint (the phone bar below lg, the desktop TopHeader above):
+     sticky headers inside pages sit below it, and side gutters keep clear of the notch in landscape. */
   --bar-h: 48px;
   --gutter-l: max(16px, env(safe-area-inset-left));
   --gutter-r: max(16px, env(safe-area-inset-right));
@@ -149,7 +149,9 @@
 
 @media (min-width: 961px) {
   :root {
-    --bar-h: 0px;
+    /* The desktop top bar's own height (TopHeader reads it back): 84px body + 1px bottom border.
+       Sticky day bars, rails and anchor offsets all sit below it, never under it. */
+    --bar-h: 85px;
   }
 }
 
@@ -504,7 +506,8 @@
   font-weight: 650;
   line-height: 1.4;
   letter-spacing: 0;
-  scroll-margin-top: 88px;
+  /* Anchored headings land below whichever bar this breakpoint sticks, with a little breathing room. */
+  scroll-margin-top: calc(var(--bar-h) + 24px);
 }
 .prose h2 { font-size: 1.26em; margin-top: 2.2em; }
 .prose h3 { font-size: 1.1em; margin-top: 1.8em; }

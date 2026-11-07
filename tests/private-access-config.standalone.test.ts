@@ -24,6 +24,26 @@ test("private access without an internal token fails explicitly", () => {
   );
 });
 
+test("a misspelled private switch fails startup instead of reading as false", () => {
+  for (const value of ["ture", "1", "yes", "FALSE", "off"]) {
+    const result = spawnSync(process.execPath, ["--input-type=module", "-e", "await import('@aihot/backend/config');"], {
+      cwd: path.resolve(import.meta.dirname, ".."),
+      env: { ...process.env, PRIVATE_ACCESS: value },
+      encoding: "utf8",
+    });
+    assert.notEqual(result.status, 0, `PRIVATE_ACCESS=${value} started the process`);
+    assert.match(result.stderr, /PRIVATE_ACCESS must be true or false/);
+  }
+  for (const value of ["true", "false", ""]) {
+    const result = spawnSync(process.execPath, ["--input-type=module", "-e", "await import('@aihot/backend/config');"], {
+      cwd: path.resolve(import.meta.dirname, ".."),
+      env: { ...process.env, PRIVATE_ACCESS: value },
+      encoding: "utf8",
+    });
+    assert.equal(result.status, 0, `PRIVATE_ACCESS=${value}: ${result.stderr}`);
+  }
+});
+
 test("init-env generates the internal token before enabling private access", () => {
   const repo = path.resolve(import.meta.dirname, "..");
   const directory = mkdtempSync(path.join(tmpdir(), "private-init-"));

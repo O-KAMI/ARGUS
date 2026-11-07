@@ -11,6 +11,8 @@ import { Badge } from "../components/ui/Badge";
 import { EmptyState } from "../components/ui/Page";
 import { IconChevronDown, IconInfo } from "../components/icons";
 import { Sparkline } from "../features/hot/Sparkline";
+import { hotReadingNote, hotSnapshot } from "../features/hot/snapshot";
+import { CoverImage } from "../components/ui/CoverImage";
 import { OriginalLink } from "../features/feed/parts";
 import { EntryLink } from "../features/hot/EntryLink";
 import { Faces } from "../features/hot/Faces";
@@ -120,7 +122,8 @@ function HeatPanel({ e }: { e: HotEntryView }) {
 
 /** No. 1: the event people are talking about most, with its picture, digest, latest turn and day of heat. */
 function Lead({ e }: { e: HotEntryView }) {
-  const panel = !e.cover && e.spark.filter((v) => v !== null).length >= 3;
+  const heat = e.spark.filter((v) => v !== null).length >= 3;
+  const panel = !e.cover && heat;
   return (
     <article className="card card-hover group relative flex flex-col overflow-hidden p-5 sm:p-6">
       <div className="flex items-center gap-2.5">
@@ -137,7 +140,8 @@ function Lead({ e }: { e: HotEntryView }) {
         </div>
         {e.cover ? (
           <div className="order-first overflow-hidden well rounded-panel xl:order-none">
-            <img src={e.cover.url} srcSet={e.cover.srcSet} sizes="(min-width: 1280px) calc(28vw - 96px), (min-width: 1024px) calc(58vw - 180px), (min-width: 640px) 568px, calc(100vw - 74px)" width={e.cover.width ?? undefined} height={e.cover.height ?? undefined} alt="" loading="eager" fetchPriority="high" decoding="async" className="aspect-[16/9] size-full object-cover transition-transform duration-500 group-hover:scale-[1.02] xl:aspect-[16/10]" />
+            {/* A dead cover falls back to the day of heat (or the brand mark), never a broken image. */}
+            <CoverImage fallback={heat ? <HeatPanel e={e} /> : <div className="grid aspect-[16/9] w-full place-items-center font-serif text-[13px] tracking-[0.1em] text-ink-4 xl:aspect-[16/10]">ARGUS</div>} src={e.cover.url} srcSet={e.cover.srcSet} sizes="(min-width: 1280px) calc(28vw - 96px), (min-width: 1024px) calc(58vw - 180px), (min-width: 640px) 568px, calc(100vw - 74px)" width={e.cover.width ?? undefined} height={e.cover.height ?? undefined} alt="" loading="eager" fetchPriority="high" decoding="async" className="aspect-[16/9] size-full object-cover transition-transform duration-500 group-hover:scale-[1.02] xl:aspect-[16/10]" />
           </div>
         ) : (
           panel && <HeatPanel e={e} />
@@ -292,11 +296,8 @@ export default function HotPage() {
   const mirror = hot.mirror ?? null;
   const count = hot.entries.length || 10;
   const scope = mirror ? `${mirror.label} · 照读上游公开榜单` : "跨源讨论热度";
-  // 镜像榜单的两半各有自己的读取时间：分属两次读取或落后于设定节奏时如实说出来，读数是新的就不再多占一行。
-  const readingNote = !mirror?.asOf
-    ? null
-    : mirror.mixed ? `两份读数分属不同时刻（${monthDayTime(mirror.asOf)} 起），顺序是混合快照`
-      : mirror.stale ? `读数截至 ${monthDayTime(mirror.asOf)}` : null;
+  // 与首页共用同一份快照判定：读数落后于节奏或停在此前的一天时如实说出来，读数是今天的就不再多占一行。
+  const readingNote = hotReadingNote(hotSnapshot(hot));
   return (
     <div className="pb-10">
       <PhoneBar

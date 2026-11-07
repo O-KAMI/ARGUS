@@ -3,6 +3,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { parseEnv } from "node:util";
+import { privateAccessFromEnv } from "@aihot/contracts/private-access";
 import { DEPLOYMENT, SITE } from "@aihot/site";
 
 export const REPO_ROOT = path.resolve(import.meta.dirname, "../../..");
@@ -59,6 +60,9 @@ export const config = {
   // External-action valve: off unless the environment turns it on, like COLLECT_ENABLED (read by the
   // worker).
   modelCallsEnabled: bool("MODEL_CALLS_ENABLED", false),
+  // Shadow rollout of the learning track's visual evidence (audit 2026-11-04 三.5): off, no image is
+  // read for judging; on, short picture posts get budgeted vision evidence before the prefilter decides.
+  visionEvidenceShadow: bool("VISION_EVIDENCE_SHADOW", false),
   devAdmin: env.DEV_AUTH_ROLE === "admin" ? { displayName: env.DEV_AUTH_DISPLAY_NAME || "Dev Admin" } : null,
   /** The admin password (at least 12 characters). Feishu sign-in below is optional. */
   adminPassword: env.ADMIN_PASSWORD || null,
@@ -66,7 +70,7 @@ export const config = {
    * ARGUS is private by default: when on, every reader page and public feed/API/MCP needs the
    * signed-in session. The web process reaches the api with INTERNAL_TOKEN for server-side rendering.
    */
-  privateAccess: bool("PRIVATE_ACCESS", true),
+  privateAccess: privateAccessFromEnv(env.PRIVATE_ACCESS),
   /** Shared secret between the web and api processes for SSR reads while PRIVATE_ACCESS is on. */
   internalToken: env.INTERNAL_TOKEN || null,
   adminUnionIds: (env.ADMIN_FEISHU_UNION_IDS || "").split(",").map((v) => v.trim()).filter(Boolean),

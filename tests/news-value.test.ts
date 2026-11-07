@@ -1,5 +1,5 @@
-// Failure modes: a duplicate loses the official representative slot; an already-covered follow-up
-// still takes a fresh selected slot; unseen/pending reports are treated as previously selected;
+// Failure modes: a duplicate takes a selected slot without its own value judgement; an already-covered
+// follow-up still takes a fresh selected slot; unseen/pending reports are treated as previously selected;
 // a roundup invents a fact to suppress overlap; missing value output silently approves publication;
 // a later no-op grouping erases a prior low-increment decision; a material revision silently approves
 // a rejected follow-up or cannot regain its slot after adding evidence. Older confirmed identities
@@ -78,7 +78,7 @@ test("value output is required and boolean, never a silent approval", () => {
   assert.equal(BatchSchema.safeParse({ ...base, selection: { addsValue: true, reason: "不同发生" } }).success, true);
 });
 
-test("same-fact reports remain eligible to replace the representative despite no new information", async () => {
+test("a pure duplicate of a represented fact joins it but adds no value and takes no slot", async () => {
   const text = family();
   const first = await root(text);
   relation = "SAME_OCCURRENCE";
@@ -86,8 +86,8 @@ test("same-fact reports remain eligible to replace the representative despite no
   const id = await report(text);
   assert.equal((await groupArticle(id)).factId, first.result.factId);
   const row = await state(id);
-  assert.equal(row.selection_adds_value, true);
-  assert.equal(row.selected, true);
+  assert.equal(row.selection_adds_value, false, "the value judgement stands on its own; a duplicate is not a representative replacement");
+  assert.equal(row.selected, false);
 });
 
 for (const sameUrl of [false, true]) test(`a ${sameUrl ? "same-url" : "same-fact"} copy cannot revive a low-increment fact without new value`, async () => {
@@ -111,7 +111,7 @@ for (const sameUrl of [false, true]) test(`a ${sameUrl ? "same-url" : "same-fact
   } finally { sameOccurrenceTitle = null; }
 });
 
-for (const alreadySelected of [false, true]) test(`a same-url report can ${alreadySelected ? "replace a selected representative without a call" : "be the first selected report of an unseen fact"}`, async () => {
+for (const alreadySelected of [false, true]) test(`a same-url report joins its page's fact and is selected ${alreadySelected ? "when the value judgement finds new reading value over the representative" : "as an unseen fact's first pick"}`, async () => {
   const text = family();
   const first = await root(text, alreadySelected);
   const id = await report(text);
@@ -122,7 +122,9 @@ for (const alreadySelected of [false, true]) test(`a same-url report can ${alrea
   const result = await groupArticle(id);
   assert.deepEqual([result.verdict,result.factId], ["same-url",first.result.factId]);
   assert.equal((await state(id)).selected, true);
-  assert.equal(provider.hits(), calls + (alreadySelected ? 0 : 1));
+  // Identity by URL needs no relation call, but the value judgement is never skipped: the batch reads
+  // the selected background and answers addsValue itself.
+  assert.equal(provider.hits(), calls + 1);
 });
 
 test("a low-increment follow-up stays a distinct fact in all content without a selected slot", async () => {

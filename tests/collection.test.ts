@@ -32,14 +32,34 @@ process.env.SOCIALDATA_BASE_URL = socialdata.url;
 process.env.SOCIALDATA_API_KEY = "test-key";
 config.allowPrivateNetworkFetch = true;
 
+// FxTwitter: four pages of twenty posts, newest first; page four is older than the first-import cap keeps.
+const FX_HANDLE = `fx${T}`;
+const fxNow = Math.floor(Date.now() / 1000);
+const fxStatus = (id: number) => ({
+  type: "status", id: String(id), url: `https://x.com/${FX_HANDLE}/status/${id}`, text: `Fx post ${id} ${T}`,
+  author: { id: "9", name: "Fx account", screen_name: FX_HANDLE }, created_timestamp: fxNow - id * 60,
+});
+const fxPages: Record<string, { code: number; results: ReturnType<typeof fxStatus>[]; cursor: { top: null; bottom: string | null } }> = {
+  "": { code: 200, results: Array.from({ length: 20 }, (_, i) => fxStatus(80 - i)), cursor: { top: null, bottom: "p2" } },
+  p2: { code: 200, results: Array.from({ length: 20 }, (_, i) => fxStatus(60 - i)), cursor: { top: null, bottom: "p3" } },
+  p3: { code: 200, results: Array.from({ length: 20 }, (_, i) => fxStatus(40 - i)), cursor: { top: null, bottom: "p4" } },
+  p4: { code: 200, results: Array.from({ length: 20 }, (_, i) => fxStatus(20 - i)), cursor: { top: null, bottom: null } },
+};
+const fxtwitter = await stub((_hit, req) => fxPages[new URL(req.url, "http://stub").searchParams.get("cursor") ?? ""]!);
+config.fxTwitterBaseUrl = fxtwitter.url;
+
 before(async () => {
   await sql`UPDATE budgets SET per_minute = 1000, per_hour = 10000, per_day = 100000 WHERE service = 'socialdata'`;
   await sql`INSERT INTO sources (id, name, kind, config, tier, participation_mode, cursor, next_fetch_at)
             VALUES (${X_SOURCE}, 'Test X', 'x_search', ${sql.json({ query: `from:acct${T}` })}, 'T1', 'editorial',
                     ${sql.json({ initializedAt: new Date().toISOString(), lastTweetId: String(WATERMARK) })}, '2100-01-01')`;
+  await sql`INSERT INTO sources (id, name, kind, config, tier, participation_mode, cursor, next_fetch_at)
+            VALUES (${`test-fx-${T}`}, 'Test Fx', 'x_search', ${sql.json({ query: `from:${FX_HANDLE} -filter:replies`, provider: "fxtwitter" })}, 'T1', 'editorial',
+                    NULL, '2100-01-01')`;
 });
 after(async () => {
   await socialdata.close();
+  await fxtwitter.close();
   await stopBoss();
   await closeDb();
 });
@@ -65,4 +85,34 @@ test("an X search longer than one run is read to the old watermark over the next
   assert.equal(await stored(), 45, "every post between the old watermark and the newest is stored");
   assert.equal((await cursor()).xBacklog, undefined, "nothing is left to read");
   assert.equal(socialdata.hits(), 20 + 1 + 3, "no page is requested twice");
+});
+
+test("a capped first import never skips a middle range while ingesting older posts", async () => {
+  const id = `test-fx-${T}`;
+  const kept = Array.from({ length: 30 }, (_, i) => 80 - i);
+  const storedIds = async () => (await sql<{ url: string }[]>`SELECT url FROM articles WHERE source_id = ${id}`).map((r) => Number(r.url.split("/").pop())).sort((a, b) => b - a);
+  const cursor = async () => (await sql<{ cursor: { lastTweetId: string; fxBacklog?: unknown[]; initialHistoryExcluded?: { count: number; newest: string; oldest: string } } }[]>`SELECT cursor FROM sources WHERE id = ${id}`)[0]!.cursor;
+  const lastDetail = async () => (await sql<{ detail: Record<string, number> }[]>`SELECT detail FROM fetch_runs WHERE source_id = ${id} ORDER BY id DESC LIMIT 1`)[0]!.detail;
+
+  const first = await collectSource(id, { force: true });
+  assert.equal(first.status, "ok");
+  assert.equal(first.created, 30, "the first import keeps its bounded newest slice");
+  assert.deepEqual(await storedIds(), kept);
+  const c = await cursor();
+  assert.equal(c.lastTweetId, "80", "the catch-up watermark still tracks the newest post");
+  assert.equal(c.fxBacklog, undefined, "the history chain stops at the cap instead of pointing past the kept items");
+  assert.equal(c.initialHistoryExcluded?.count, 30, "the capped middle range is recorded as deliberately excluded");
+  assert.ok(c.initialHistoryExcluded?.newest && c.initialHistoryExcluded?.oldest, "the excluded range has both boundaries");
+  const d = await lastDetail();
+  assert.deepEqual([d.discovered, d.written, d.excluded, d.awaitingBackfill], [60, 30, 30, 0]);
+
+  // A second run, a restart and repeated input: only the newest page is re-read, all duplicates.
+  for (let run = 0; run < 3; run++) {
+    const again = await collectSource(id, { force: true });
+    assert.equal(again.status, "ok");
+    assert.equal(again.created, 0);
+    assert.deepEqual(await storedIds(), kept, "no older page is ingested while the excluded middle range stays out");
+    assert.equal((await lastDetail()).duplicate, 20);
+  }
+  assert.equal(fxtwitter.hits(), 3 + 3, "the first import reads three pages; each later run re-reads only the newest page");
 });

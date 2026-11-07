@@ -1,8 +1,9 @@
 import { Link } from "react-router";
-import type { FeedItemSummary, HotEntryView, HotMirrorNote, HotResponse, MediaView, TimelineCard, TimelineResponse, TopicSummary, TopicsResponse } from "@aihot/contracts/site";
+import type { FeedItemSummary, HotEntryView, HotResponse, MediaView, TimelineCard, TimelineResponse, TopicSummary, TopicsResponse } from "@aihot/contracts/site";
 import { CATEGORY_LABELS } from "@aihot/contracts/taxonomy";
 import { beijingDate, beijingEnglishDate } from "@aihot/contracts/time";
 import { IntentLink } from "../../components/ui/IntentLink";
+import { CoverImage } from "../../components/ui/CoverImage";
 import { EmptyState } from "../../components/ui/Page";
 import { SourceAvatar } from "../../components/ui/SourceAvatar";
 import { IconBookmark, IconChart, IconChevronRight, IconFlame } from "../../components/icons";
@@ -10,6 +11,7 @@ import { INK, InkIcon, type InkIconName } from "../../components/ink";
 import { EntryLink, isOwnStory } from "../hot/EntryLink";
 import { Faces } from "../hot/Faces";
 import { Sparkline } from "../hot/Sparkline";
+import { hotHeading, hotReadingNote, hotSnapshot } from "../hot/snapshot";
 import { OriginalLink, SourceLine, StarButton } from "../feed/parts";
 import { relativeTime } from "../../lib/format";
 import { dailyQuote } from "./daily-quote";
@@ -37,20 +39,21 @@ function dateParts() {
 function DateCard() {
   const d = dateParts();
   const quote = dailyQuote(d.day);
+  // On phones the date and quote are secondary reading: compact, under the day's lead, not in front of it.
   return (
-    <section className="card relative overflow-hidden px-5 pb-4 pt-5" aria-labelledby="today-date">
+    <section className="card relative overflow-hidden p-4 lg:px-5 lg:pb-4 lg:pt-5" aria-labelledby="today-date">
       <time id="today-date" dateTime={d.day} className="block">
-        <span className="font-serif text-[40px] font-normal leading-none tracking-[0.04em] text-ink"><span className="num">{d.month}</span><span className="mx-2 text-ink-4">/</span><span className="num">{d.date}</span></span>
-        <span className="mt-3 block font-serif text-[13px] tracking-[0.14em] text-ink-3">{d.english}</span>
+        <span className="font-serif text-[24px] font-normal leading-none tracking-[0.04em] text-ink lg:text-[40px]"><span className="num">{d.month}</span><span className="mx-2 text-ink-4">/</span><span className="num">{d.date}</span></span>
+        <span className="mt-1.5 block font-serif text-[11px] tracking-[0.14em] text-ink-3 lg:mt-3 lg:text-[13px]">{d.english}</span>
       </time>
       <div aria-hidden="true" className="relative mt-4 hidden h-[112px] overflow-hidden rounded-control lg:block">
         <img src={INK.dateCard} alt="" width={760} height={950} decoding="async" className="ink-photo size-full object-cover object-[center_62%]" />
         <img src={INK.sealGuan} alt="" width={22} height={23} decoding="async" className="ink-mono absolute right-1.5 top-1/2 w-[22px] -translate-y-1/2 object-contain" />
       </div>
-      <div className="relative mt-3 border-t border-line-soft pt-4 lg:mt-2 lg:border-t-0 lg:pt-0">
+      <div className="relative mt-3 border-t border-line-soft pt-3 lg:mt-2 lg:border-t-0 lg:pt-0">
         <span aria-hidden="true" className="absolute -top-1 left-0 font-serif text-[30px] leading-none text-line-strong">“</span>
         <h2 className="sr-only">今日名言</h2>
-        <p className="line-clamp-4 min-h-[56px] pl-5 font-serif text-[14px] leading-[1.9] tracking-[0.04em] text-ink-2">{quote.text}</p>
+        <p className="line-clamp-2 pl-5 font-serif text-[14px] leading-[1.9] tracking-[0.04em] text-ink-2 lg:line-clamp-4 lg:min-h-[56px]">{quote.text}</p>
         <p className="mt-2 text-right text-[11px] tracking-[0.08em] text-ink-4">—— {quote.source}</p>
       </div>
     </section>
@@ -104,17 +107,24 @@ function LeadHeat({ entry }: { entry: HotEntryView }) {
   );
 }
 
-function LeadHot({ entry, mirror }: { entry?: HotEntryView; mirror?: HotMirrorNote | null }) {
+function LeadHot({ hot }: { hot: HotResponse }) {
+  const entry = hot.entries[0];
+  const mirror = hot.mirror;
+  // The heading names the snapshot actually read, not the wall clock: browsing days later must not
+  // present an old reading as today's, and the hint says how old it is.
+  const snap = hotSnapshot(hot);
+  const note = hotReadingNote(snap);
   return (
     <section aria-labelledby="home-hot-title">
       <div className="mb-3 flex items-center gap-2">
-        <InkIcon name="hot" size={19} className="opacity-90" /><h2 id="home-hot-title" className="font-serif text-[18px] font-semibold tracking-[0.04em] text-ink">今日热点</h2>
+        <InkIcon name="hot" size={19} className="opacity-90" /><h2 id="home-hot-title" className="font-serif text-[18px] font-semibold tracking-[0.04em] text-ink">{hotHeading(snap)}</h2>
         <Link to="/hot" className="ml-auto text-[12px] text-ink-4 hover:text-ink">查看更多 →</Link>
       </div>
+      {note && <p className="-mt-2 mb-3 text-[12px] text-ink-4">{note}</p>}
       {entry ? (
         <article className="card card-hover group relative overflow-hidden p-4 sm:p-5">
           {entry.cover ? (
-            <img src={entry.cover.url} srcSet={entry.cover.srcSet} sizes="(min-width: 1280px) 650px, (min-width: 961px) 48vw, calc(100vw - 64px)" width={entry.cover.width ?? undefined} height={entry.cover.height ?? undefined} alt="" loading="eager" fetchPriority="high" decoding="async" className="aspect-[16/5] w-full rounded-control bg-bg-sunk object-cover sm:aspect-[32/9]" />
+            <CoverImage fallback={<LeadHeat entry={entry} />} src={entry.cover.url} srcSet={entry.cover.srcSet} sizes="(min-width: 1280px) 650px, (min-width: 961px) 48vw, calc(100vw - 64px)" width={entry.cover.width ?? undefined} height={entry.cover.height ?? undefined} alt="" loading="eager" fetchPriority="high" decoding="async" className="aspect-[16/5] w-full rounded-control bg-bg-sunk object-cover sm:aspect-[32/9]" />
           ) : <LeadHeat entry={entry} />}
           <h3 className="mt-4 line-clamp-2 font-serif text-[21px] font-semibold leading-[1.45] text-ink sm:text-[23px]">
             <EntryLink e={entry} className="after:absolute after:inset-0 after:content-[''] group-hover:text-accent">{entry.story.title}</EntryLink>
@@ -173,14 +183,15 @@ function cardCover(item: FeedItemSummary): MediaView | null {
 function SelectedCard({ card }: { card: TimelineCard }) {
   const item = card.item;
   const cover = cardCover(item);
+  const placeholder = (
+    <div className="grid min-h-[164px] place-items-center bg-bg-sunk p-3 text-center font-serif text-[12px] tracking-[0.1em] text-ink-4">ARGUS<br />精选</div>
+  );
   return (
     <article className="group relative min-w-0 overflow-hidden rounded-card border border-line-soft bg-surface shadow-card transition-shadow duration-150 hover:shadow-card-hover">
       <div className="grid min-h-[164px] grid-cols-[39%_minmax(0,1fr)]">
         {cover ? (
-          <img src={cover.poster ?? cover.url} srcSet={cover.srcSet} sizes="(min-width: 1280px) 130px, 30vw" width={cover.width ?? undefined} height={cover.height ?? undefined} alt={cover.alt ?? ""} loading="lazy" decoding="async" className="h-full min-h-[164px] w-full bg-bg-sunk object-cover" />
-        ) : (
-          <div className="grid min-h-[164px] place-items-center bg-bg-sunk p-3 text-center font-serif text-[12px] tracking-[0.1em] text-ink-4">ARGUS<br />精选</div>
-        )}
+          <CoverImage fallback={placeholder} src={cover.poster ?? cover.url} srcSet={cover.srcSet} sizes="(min-width: 1280px) 130px, 30vw" width={cover.width ?? undefined} height={cover.height ?? undefined} alt={cover.alt ?? ""} loading="lazy" decoding="async" className="h-full min-h-[164px] w-full bg-bg-sunk object-cover" />
+        ) : placeholder}
         <div className="flex min-w-0 flex-col p-3">
           <div className="flex gap-1 overflow-hidden text-[12px] text-ink-4">
             {item.category && <span className="shrink-0 rounded-mark bg-bg-sunk px-1.5 py-0.5">{CATEGORY_LABELS[item.category]}</span>}
@@ -202,17 +213,27 @@ function SelectedCard({ card }: { card: TimelineCard }) {
   );
 }
 
-export function HomeBoard({ data, hot, topics }: { data: TimelineResponse; hot: HotResponse; topics: TopicsResponse }) {
+/** An auxiliary read failed: its own board says so, and the timeline below keeps reading. */
+function BoardUnavailable({ title, detail }: { title: string; detail: string }) {
+  return (
+    <div className="card">
+      <EmptyState title={title} action={<Link to="/hot" className="text-[13px] font-medium text-accent hover:text-accent-ink">去热点榜看看 →</Link>}>{detail}</EmptyState>
+    </div>
+  );
+}
+
+export function HomeBoard({ data, hot, topics }: { data: TimelineResponse; hot: HotResponse | null; topics: TopicsResponse | null }) {
   const unreadOnly = useUnreadOnly();
   const featured = data.cards.slice(0, 3);
   return (
     <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-[230px_minmax(0,1fr)_290px] xl:grid-cols-[240px_minmax(0,1fr)_310px]">
       <div className="min-w-0 lg:row-span-2">
         <DateCard />
-        <div className="hidden lg:block"><TopicRail topics={topics.topics} /></div>
+        {topics && <div className="hidden lg:block"><TopicRail topics={topics.topics} /></div>}
       </div>
-      <div className="min-w-0"><LeadHot entry={hot.entries[0]} mirror={hot.mirror} /></div>
-      <div className="hidden min-w-0 lg:block"><HotRanking entries={hot.entries} /></div>
+      {/* Phones read the day's lead first; the date card and its quote follow as secondary content. */}
+      <div className="order-first min-w-0 lg:order-none">{hot ? <LeadHot hot={hot} /> : <BoardUnavailable title="热点暂时不可用" detail="榜单读取失败，精选时间线不受影响；稍后刷新，或直接去热点榜。" />}</div>
+      <div className="hidden min-w-0 lg:block">{hot ? <HotRanking entries={hot.entries} /> : <BoardUnavailable title="榜单暂时不可用" detail="热门榜单读取失败，稍后刷新重试。" />}</div>
       {!unreadOnly && (
         <section className="min-w-0 lg:col-span-2 lg:col-start-2" aria-labelledby="home-selected-title">
           <div className="mb-3 flex items-center gap-2">

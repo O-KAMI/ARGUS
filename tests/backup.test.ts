@@ -348,3 +348,16 @@ test("a real dump preserves libpq query parameter escaping", async () => {
   try { assert.equal((await runBackup(NOW)).uploaded, true); }
   finally { config.databaseUrl = originalUrl; }
 });
+
+// 审计 2026-11-04 五：后台要展示备份的三种事实——未配置 / 最近成功 / 恢复已验证。恢复验证是主人每月在
+// 隔离库做完后亲手记录的，不冒充自动结论。
+test("the admin sees the backup's three facts, and records a verified restore by hand", async () => {
+  const { backupFacts, recordRestoreVerified } = await import("@aihot/backend/reports/status");
+  const facts = await backupFacts();
+  assert.ok(facts.last, "this suite's own backups leave a last-success fact");
+  assert.equal(facts.restoreVerified, null, "nobody has verified a restore yet");
+  await recordRestoreVerified("隔离库恢复，打开了一条报道和一个附件", "tester");
+  const after = await backupFacts();
+  assert.equal(after.restoreVerified?.note, "隔离库恢复，打开了一条报道和一个附件");
+  assert.ok(after.restoreVerified?.at);
+});

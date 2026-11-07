@@ -9,6 +9,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { closeDb, sql } from "@aihot/backend/db";
 import { upsertMaterial } from "@aihot/backend/content/materials";
+import { assetKey } from "@aihot/backend/lib/asset-key";
 import { readPublicationDate } from "@aihot/backend/sources/dates";
 import { loadAnalyzeInput, buildMaterial } from "@aihot/backend/editorial/input";
 import { identityKeyForUrl } from "@aihot/backend/lib/url";
@@ -234,4 +235,34 @@ test("rereading an exact midnight upgrades day precision without a new revision"
   const [row] = await sql`SELECT publication_time, revision FROM articles WHERE id=${articleId}`;
   assert.equal(row!.publication_time, "2026-10-13T07:00:00.000Z");
   assert.equal(row!.revision, 1);
+});
+
+// 审计复现的键碰撞：同机构两个不同的 HF dataset 都折叠成 hf:datasets/acme；notgithub.com 命中
+// GitHub 键。主机与资源路径必须精确匹配，模型 / dataset / space 分开。
+test("asset keys distinguish resources of one org and never match a lookalike host", () => {
+  assert.equal(assetKey("https://huggingface.co/datasets/acme/corpus-v1"), "hf:datasets/acme/corpus-v1");
+  assert.equal(assetKey("https://huggingface.co/datasets/acme/corpus-v2"), "hf:datasets/acme/corpus-v2");
+  assert.notEqual(assetKey("https://huggingface.co/datasets/acme/corpus-v1"), assetKey("https://huggingface.co/datasets/acme/corpus-v2"));
+  assert.equal(assetKey("https://huggingface.co/spaces/acme/demo"), "hf:spaces/acme/demo");
+  assert.equal(assetKey("https://huggingface.co/acme/model-1"), "hf:acme/model-1");
+  assert.notEqual(assetKey("https://huggingface.co/acme/model-1"), assetKey("https://huggingface.co/datasets/acme/model-1"));
+  assert.equal(assetKey("推荐 https://notgithub.com/acme/repo 这个库"), "url:https://notgithub.com/acme/repo");
+  assert.equal(assetKey("https://github.com.evil.example/acme/repo"), "url:https://github.com.evil.example/acme/repo");
+  assert.equal(assetKey("看这个github.com/acme/repo，很好用"), "gh:acme/repo");
+  assert.equal(assetKey("https://github.com/acme/repo/tree/main"), "gh:acme/repo");
+  assert.equal(assetKey("npmjs.com/package/@acme/tool 和 pypi.org/project/acme-kit"), "npm:@acme/tool");
+});
+
+// 审计的修订失效：正文移除链接后资产键沿用旧值，召回会永远指向旧资产。「字段未提供」（无正文的列表读）
+// 与「完整内容已删除该资产」必须分开：前者保留存量证据，后者清空键。
+test("a full read that drops the asset link clears the key; a body-less listing keeps the stored evidence", async () => {
+  const url = `https://example.com/asset-drop-${tag()}`;
+  const key = async () => (await sql<{ asset_key: string | null }[]>`SELECT asset_key FROM articles WHERE url = ${url}`)[0]!.asset_key;
+  await upsertMaterial({ sourceId: SOURCE, url, title: "A tool", bodyText: "推荐 https://github.com/acme/toolkit 这个工具", bodyStatus: "ok", via: "fetch" });
+  assert.equal(await key(), "gh:acme/toolkit");
+  await upsertMaterial({ sourceId: SOURCE, url, title: "A tool, renamed", via: "fetch" });
+  assert.equal(await key(), "gh:acme/toolkit", "a listing without a body carries no evidence either way");
+  const dropped = await upsertMaterial({ sourceId: SOURCE, url, title: "A tool, renamed", bodyText: "这个工具不再附链接了", bodyStatus: "ok", via: "fetch" });
+  assert.equal(dropped.revised, true);
+  assert.equal(await key(), null, "the full content no longer names the asset");
 });

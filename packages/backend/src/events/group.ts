@@ -214,7 +214,7 @@ async function markGrouped(articleId: string, revision: number, selection?: Sele
 
 export interface GroupResult {
   verdict:
-    | "same-fact" | "same-url" | "same-asset" | "new-fact-in-story" | "new-story" | "roundup" | "kept" | "standalone" | "manual" | "skipped"
+    | "same-fact" | "same-url" | "new-fact-in-story" | "new-story" | "roundup" | "kept" | "standalone" | "manual" | "skipped"
     | "signal" | "signal-native" | "signal-unmatched" | "historical";
   factId?: number;
   storyId?: number;
@@ -341,15 +341,13 @@ async function decide(articleId: string, opts: GroupOptions, revision: number, r
   const newTitle = String(frame?.title || title).slice(0, 60);
 
   const { sameUrl, sameAsset, referenced } = await relatedPosts(a);
-  // A shared page URL and a shared asset key both settle identity without asking the model again; an
-  // unseen fact still needs its first reading-value decision.
-  const same = sameUrl ?? sameAsset;
-  const selectedSame = same && !composite && !kept && (await candidateViews([{
-    factId: same.fact_id, storyId: same.story_id, factTitle: same.fact_title, score: 1,
-  }]))[0]?.selected === true;
-  const cands = selectedSame ? [] : await candidateViews(await recallFacts(articleId,
-    reportText(title, an.summary_zh), RECALL_MIN_COSINE, RECALL_TOP_FACTS, [...referenced, ...(same ? [same] : [])]));
-  const reading = selectedSame ? [] : await recallSelectedBackground(articleId, reportText(title, an.summary_zh), RECALL_MIN_COSINE, cands.map(c => c.factId));
+  // A shared page URL settles identity: the same page is the same post. An exact asset key only recalls
+  // candidates — the same repository's next version, or an incident in it, is another fact until the
+  // relation judgement says SAME_OCCURRENCE (asset ≠ fact); a pure re-recommendation of one already
+  // covered keeps its own value judgement instead of inheriting a representative slot.
+  const cands = await candidateViews(await recallFacts(articleId,
+    reportText(title, an.summary_zh), RECALL_MIN_COSINE, RECALL_TOP_FACTS, [...referenced, ...(sameUrl ? [sameUrl] : []), ...(sameAsset ? [sameAsset] : [])]));
+  const reading = await recallSelectedBackground(articleId, reportText(title, an.summary_zh), RECALL_MIN_COSINE, cands.map(c => c.factId));
   let verdicts = new Map<number, Verdict>();
   let selection = NO_SELECTED_COVERAGE;
   const receipts: number[] = [];
@@ -405,10 +403,10 @@ async function decide(articleId: string, opts: GroupOptions, revision: number, r
   let factId: number | null = null;
   let storyId: number | null = null;
 
-  if (same) {
-    verdict = sameUrl ? "same-url" : "same-asset";
-    factId = same.fact_id;
-    storyId = same.story_id;
+  if (sameUrl) {
+    verdict = "same-url";
+    factId = sameUrl.fact_id;
+    storyId = sameUrl.story_id;
   } else {
     if (cands.length) {
       for (const pick of sameOccurrence(cands, verdicts)) {
@@ -445,12 +443,10 @@ async function decide(articleId: string, opts: GroupOptions, revision: number, r
   const decisionCandidates: DecisionCandidate[] = cands.map((c) => ({
     id: c.factId, score: Math.round(c.score * 1000) / 1000, relation: verdicts.get(c.factId)?.relation, confidence: verdicts.get(c.factId)?.confidence,
   }));
-  if (same) decisionCandidates.push({ id: same.fact_id, score: 1, relation: "SAME_OCCURRENCE", confidence: 1 });
-  // Only a fact already shown in selected has a representative slot to replace. A duplicate of
-  // an unselected fact must retain the value judgement, including a prior low-increment rejection.
-  if ((verdict === "same-fact" || verdict === "same-url" || verdict === "same-asset") && (selectedSame || cands.some(c => c.factId === factId && c.selected))) {
-    selection = { addsValue: true, reason: "同一新闻的代表报道候选" };
-  }
+  if (sameUrl) decisionCandidates.push({ id: sameUrl.fact_id, score: 1, relation: "SAME_OCCURRENCE", confidence: 1 });
+  // The batch's selection judgement stands on its own: it reads the selected background (reading and
+  // selected candidates), so a duplicate of an already represented fact adds value only when the model
+  // finds new reading value in it. A duplicate of an unselected fact keeps its prior rejection.
 
   // Written under the article's row lock after reading the manual state again: a detach or other
   // manual decision made while the model was answering wins (detachFromFact takes the same lock).

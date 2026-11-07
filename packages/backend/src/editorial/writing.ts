@@ -79,7 +79,7 @@ function materialQuality(a: AnalyzeInputArticle): string {
 }
 
 /** The material as the prefilter and the content understanding read it. */
-export function renderContext(a: AnalyzeInputArticle, opts: { annotateQuoted?: boolean } = {}): string {
+export function renderContext(a: AnalyzeInputArticle, opts: { annotateQuoted?: boolean; visualEvidence?: string | null } = {}): string {
   const lines: string[] = [];
   lines.push(`【来源】${a.source.name}（${a.source.kind}，tier=${a.source.tier || "未分级"}）`);
   // `track:` 只决定这套资料走哪条精选轨道，是内部路由标记，喂给模型只会污染判定。
@@ -94,6 +94,8 @@ export function renderContext(a: AnalyzeInputArticle, opts: { annotateQuoted?: b
   const videos = media.filter((m) => m.kind === "video").length;
   const mediaParts = [images ? `${images} 张图` : null, videos ? `${videos} 个视频` : null, unfetchedXArticle(a) ? "含 X 长文链接（正文未抓到）" : null].filter(Boolean);
   if (mediaParts.length) lines.push(`【媒体】${mediaParts.join(" · ")}`);
+  // What a vision model read in the picture, labelled as such: the text's own provenance stays intact.
+  if (opts.visualEvidence) lines.push(`【视觉证据（视觉模型读图所得，非原文文字）】${opts.visualEvidence}`);
   lines.push(`【原文链接】${a.url}`);
   lines.push(`【标题】${a.title}`);
   const quoted = a.xPost?.quoted?.text ? a.xPost.quoted : null;
@@ -115,7 +117,7 @@ export function renderContext(a: AnalyzeInputArticle, opts: { annotateQuoted?: b
 }
 
 /** The prefilter's user message: the context as a JSON string (the prompt was tuned on this form). */
-export const prefilterUser = (a: AnalyzeInputArticle) => JSON.stringify(renderContext(a));
+export const prefilterUser = (a: AnalyzeInputArticle, opts: Parameters<typeof renderContext>[1] = {}) => JSON.stringify(renderContext(a, opts));
 
 /** No text beyond the title: no body, feed excerpt, post or quoted text. */
 export function missingEvidence(a: AnalyzeInputArticle): boolean {

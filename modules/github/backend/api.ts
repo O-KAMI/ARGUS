@@ -2,8 +2,8 @@
 // Reads only — nothing here touches GitHub, and no model is called (AGENTS.md).
 import { sql } from "@aihot/backend/db";
 import { AI_CATEGORIES, AI_CATEGORY_LABELS, BOARD_COPY, BOARDS, type AiCategory, type BoardType, type CategoriesResponse, type CollectionStatus, type RankingRepository, type RankingResponse, type RepositoryDetail } from "../contract.ts";
-import { githubConfig } from "./config.ts";
-import type { RunStatus, SourceType } from "./store.ts";
+import { collectionEnabled, githubConfig } from "./config.ts";
+import { readBoardStates, type RunStatus, type SourceType } from "./store.ts";
 
 /** Which collection run a board's freshness comes from. */
 const BOARD_SOURCE: Record<BoardType, SourceType> = {
@@ -111,6 +111,7 @@ export async function readBoard(query: BoardQuery): Promise<RankingResponse> {
   const [lastRun] = await sql<{ status: RunStatus }[]>`
     SELECT status FROM github_collection_runs WHERE source_type = ${BOARD_SOURCE[query.board]}
     ORDER BY started_at DESC LIMIT 1`;
+  const [boardState] = await readBoardStates([query.board]).then((map) => [map.get(query.board)]);
   const stale = fetchedAt === null
     || lastRun?.status === "failed" || lastRun?.status === "partial"
     || Date.now() - fetchedAt.getTime() > STALE_AFTER_MS;
@@ -129,6 +130,7 @@ export async function readBoard(query: BoardQuery): Promise<RankingResponse> {
     languages: totals?.languages ?? [],
     fetchedAt: fetchedAt ? fetchedAt.toISOString() : null,
     stale,
+    coverage: boardState?.coverage ?? null,
   };
 }
 
@@ -194,6 +196,7 @@ export async function readStatus(): Promise<CollectionStatus> {
     FROM github_collection_runs ORDER BY started_at DESC LIMIT 20`;
   return {
     tokenConfigured: !!githubConfig.token,
+    collectEnabled: collectionEnabled(),
     taxonomyVersion: githubConfig.taxonomyVersion,
     refreshCron: githubConfig.refreshCron,
     repositories: counts?.repositories ?? 0,

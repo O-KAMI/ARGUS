@@ -3,6 +3,7 @@
 import { Readability } from "@mozilla/readability";
 import type { parseHTML } from "linkedom";
 import { sql } from "../db.ts";
+import { assetKey } from "../lib/asset-key.ts";
 import { guardedFetch, languageHeaders } from "../lib/http-fetch.ts";
 import { assertPageContent, contentDocument, UnavailablePageError } from "../lib/page-content.ts";
 import { stripTags } from "../lib/text.ts";
@@ -486,8 +487,11 @@ export async function extractArticleBody(articleId: string): Promise<"ok" | "unc
       return "ok";
     }
     await reviseMaterial(tx, articleId, {
+      // The fetched body is a full read: what it names is the asset, or none (a removed link must not
+      // keep recalling the old one). Revisions re-judge automatic membership and keep manual decisions.
       set: sql`body_html = ${got.html}, body_text = ${got.text}, body_status = 'ok',
-        media = CASE WHEN jsonb_array_length(media) = 0 THEN ${sql.json(got.images as never)}::jsonb ELSE media END`,
+        media = CASE WHEN jsonb_array_length(media) = 0 THEN ${sql.json(got.images as never)}::jsonb ELSE media END,
+        asset_key = ${assetKey([got.text, row.excerpt, row.title].filter(Boolean).join("\n"), a.url)}`,
       hash, title: row.title, bodyText: got.text,
     });
     return "ok";
@@ -524,8 +528,8 @@ async function extractXArticle(articleId: string, tweetId: string, revision: num
     return markUnconfirmed(articleId, revision);
   }
   return sql.begin(async (tx) => {
-    const [row] = await tx<{ title: string; excerpt: string | null; body_text: string | null; x_post: { text?: string } | null; x_article: { title?: string | null; text?: string } | null }[]>`
-      SELECT title, excerpt, body_text, x_post, x_article FROM articles
+    const [row] = await tx<{ url: string; title: string; excerpt: string | null; body_text: string | null; x_post: { text?: string } | null; x_article: { title?: string | null; text?: string } | null }[]>`
+      SELECT url, title, excerpt, body_text, x_post, x_article FROM articles
       WHERE id = ${articleId} AND revision = ${revision} AND body_status <> 'ok' FOR UPDATE`;
     if (!row) return "skipped";
     const block = (a: { title?: string | null; text?: string } | null) => (a ? [a.title ? `# ${a.title}` : "", a.text ?? ""].filter(Boolean).join("\n\n") : "");
@@ -542,7 +546,8 @@ async function extractXArticle(articleId: string, tweetId: string, revision: num
       return "ok";
     }
     await reviseMaterial(tx, articleId, {
-      set: sql`title = ${title}, body_text = ${bodyText}, x_article = ${sql.json(got as never)}, body_status = 'ok'`,
+      set: sql`title = ${title}, body_text = ${bodyText}, x_article = ${sql.json(got as never)}, body_status = 'ok',
+        asset_key = ${assetKey([bodyText, row.excerpt, title].filter(Boolean).join("\n"), row.url)}`,
       hash: contentHash({ title, bodyText, excerpt: row.excerpt }), title, bodyText,
     });
     return "ok";

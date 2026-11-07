@@ -105,6 +105,54 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
         </Card>
       </div>
 
+      <div className="mt-5 grid gap-5 xl:grid-cols-2">
+        <Card
+          title="出刊状态"
+          right={<span>启刊日 {r.reports.startDaily ?? "未定"} · {r.reports.startSource === "setting" ? "人工设定" : r.reports.startSource === "first-issue" ? "按首刊推定" : "尚无刊"}</span>}
+          pad={false}
+          scrollable
+        >
+          <DataTable
+            dense
+            rows={r.reports.days.filter((d) => d.status !== "published")}
+            rowKey={(d) => d.key}
+            empty="启刊日以来没有缺期或未解释的日子"
+            columns={[
+              { key: "k", label: "刊期", render: (d) => <span className="num">{d.key}</span> },
+              { key: "s", label: "状态", render: (d) => <Badge tone={d.status === "missing" ? "bad" : d.status === "upstream" ? "warn" : "muted"}>{d.status === "quiet" ? "无入选" : d.status === "upstream" ? "上游未就绪" : "缺期"}</Badge> },
+              { key: "w", label: "窗口", render: (d) => (d.window ? <span className="num whitespace-nowrap text-[12px] text-ink-3">{bj(d.window.start)} – {bj(d.window.end)}</span> : null) },
+              { key: "r", label: "原因", render: (d) => <span className="line-clamp-2 text-[12px] text-ink-3">{d.reason}</span> },
+            ]}
+          />
+          <p className="px-4 py-3 text-[12.5px] leading-[1.7] text-ink-3">
+            周报覆盖 {r.reports.weekly.covered.length} 期{r.reports.weekly.missing.length ? `，缺 ${r.reports.weekly.missing.join("、")}` : "，无缺期"}；月报覆盖 {r.reports.monthly.covered.length} 期{r.reports.monthly.missing.length ? `，缺 ${r.reports.monthly.missing.join("、")}` : "，无缺期"}。启刊日之前的日子不算缺口；要改启刊日，写 settings 的 reports.start_daily。
+          </p>
+        </Card>
+        <Card title="备份" pad={false}>
+          <ul className="divide-y divide-line-soft text-[13px]">
+            <li className="flex items-center justify-between px-4 py-2.5">
+              <span className="text-ink-3">对象存储</span>
+              <Badge tone={r.backup.configured ? "ok" : "muted"}>{r.backup.configured ? "已配置" : "未配置"}</Badge>
+            </li>
+            <li className="flex items-center justify-between px-4 py-2.5">
+              <span className="text-ink-3">最近成功</span>
+              {r.backup.last
+                ? <span className="num text-[12.5px]">{bj(r.backup.last.at)}{r.backup.last.uploaded ? " · 已上传" : " · 仅本地"}{r.backup.last.filesError ? " · 附件包失败" : ""}</span>
+                : <Badge tone="muted">无记录</Badge>}
+            </li>
+            <li className="flex items-center justify-between gap-3 px-4 py-2.5">
+              <span className="text-ink-3">恢复已验证</span>
+              {r.backup.restoreVerified
+                ? <span className="num text-[12.5px]">{bj(r.backup.restoreVerified.at)}{r.backup.restoreVerified.note ? ` · ${r.backup.restoreVerified.note}` : ""}</span>
+                : <Button size="sm" onClick={() => run("POST", "/api/admin/backup/restore-verified", {}, { label: "记录恢复验证", success: "已记录" })}>记录本月验证</Button>}
+            </li>
+          </ul>
+          <p className="px-4 py-3 text-[12.5px] leading-[1.7] text-ink-3">
+            个人站目标：每日一份、可容忍丢失不超过 24 小时；每月在隔离库恢复一次，打开一条报道和一个附件，然后回来记录。未配置对象存储时不会排定自动备份。
+          </p>
+        </Card>
+      </div>
+
       {r.failedJobs.length > 0 && (
         <Card className="mt-5" title="24 小时内失败的队列任务" pad={false} scrollable>
           <DataTable

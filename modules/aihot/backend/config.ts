@@ -25,6 +25,12 @@ export const MIRROR_LABEL = "行业镜像";
 export const MIRROR_WINDOW_DAYS = 7;
 
 /**
+ * 精选窗口至少每隔这么久做一次无条件完整读取。上游 v1 的 ETag 按当页响应生成，第一页 304 并不能证明
+ * 后页没有更正；定期全量对账保证后页的修改最迟这么久就会被读到，而不是无限期漏掉。
+ */
+export const MIRROR_FULL_READ_MS = 6 * 3600_000;
+
+/**
  * How far apart the three addresses' readings may be before the ranking this site publishes is a mixed
  * snapshot instead of one moment. Each address is allowed to fail on its own and keep its last reading, so
  * a hot list from one pass can be joined to a topic list from an earlier one. The schedule asks every 15

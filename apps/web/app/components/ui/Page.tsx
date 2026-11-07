@@ -13,7 +13,7 @@ export function ReadingLayout({ children, aside }: { children: ReactNode; aside?
   return (
     <div className="mx-auto grid max-w-[var(--page-max-reading)] gap-8 pb-14 pt-5 lg:grid-cols-[minmax(0,1fr)_300px] lg:gap-10 lg:pt-0 2xl:grid-cols-[minmax(0,1fr)_340px]">
       <div className="min-w-0">{children}</div>
-      {aside && <aside className="min-w-0 space-y-4 lg:sticky lg:top-6 lg:self-start">{aside}</aside>}
+      {aside && <aside className="min-w-0 space-y-4 lg:sticky lg:top-[calc(var(--bar-h)+1.5rem)] lg:self-start">{aside}</aside>}
     </div>
   );
 }
@@ -31,13 +31,13 @@ export function ArticleLayout({ children, left, right }: { children: ReactNode; 
   return (
     <div className="mx-auto grid max-w-[var(--page-max-reading)] grid-cols-[minmax(0,1fr)] lg:grid-cols-[minmax(0,1fr)_240px] lg:gap-x-12 2xl:grid-cols-[minmax(200px,1fr)_minmax(0,760px)_minmax(200px,1fr)] 2xl:gap-x-12">
       <aside className="hidden 2xl:block">
-        <div ref={leftRail} className={`scrollbar-thin sticky top-6 flex max-h-[calc(100vh-3rem)] max-w-[260px] flex-col space-y-8 overflow-y-auto ${leftOverscroll}`}>{left}</div>
+        <div ref={leftRail} className={`scrollbar-thin sticky top-[calc(var(--bar-h)+1.5rem)] flex max-h-[calc(100vh-var(--bar-h)-3rem)] max-w-[260px] flex-col space-y-8 overflow-y-auto ${leftOverscroll}`}>{left}</div>
       </aside>
       <div className="min-w-0">
         <div className="mx-auto max-w-[760px]">{children}</div>
       </div>
       <aside className="hidden lg:block">
-        <div ref={rightRail} className={`scrollbar-thin sticky top-6 ml-auto flex max-h-[calc(100vh-3rem)] max-w-[260px] flex-col space-y-8 overflow-y-auto ${rightOverscroll}`}>{right}</div>
+        <div ref={rightRail} className={`scrollbar-thin sticky top-[calc(var(--bar-h)+1.5rem)] ml-auto flex max-h-[calc(100vh-var(--bar-h)-3rem)] max-w-[260px] flex-col space-y-8 overflow-y-auto ${rightOverscroll}`}>{right}</div>
       </aside>
     </div>
   );

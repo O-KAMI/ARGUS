@@ -3,6 +3,7 @@
 // operations/recover.ts and notify/deliver.ts).
 import type { AdminRuns, BeforeJson } from "@aihot/contracts/admin";
 import { sql } from "../db.ts";
+import { backupFacts, reportsStatus } from "../reports/status.ts";
 import type { Heartbeat } from "../operations/heartbeat.ts";
 import { audit } from "../audit.ts";
 import { failureGroupSql, requeueFailed } from "../jobs/content.ts";
@@ -103,6 +104,8 @@ export async function runsOverview(): Promise<Runs> {
     retrying: { count: retrying?.n ?? 0, next: retrying?.next ?? null },
     ingest,
     modules: Object.fromEntries(modules),
+    reports: await reportsStatus(new Date(now)),
+    backup: await backupFacts(),
   };
 }
 

@@ -33,11 +33,13 @@ test('ordinary share cards keep their PNG and conditional cache responses', asyn
   assert.equal(cached.statusCode, 304);
 });
 
-test('decoded controls in topic paths return 404 without injecting response headers', async () => {
+test('decoded controls in topic paths are refused without injecting response headers', async () => {
   for (const slug of ['abc%0D%0AX-Evil:1', 'abc%0A', 'abc%0D', 'abc%0A%09X-Evil:1', '%0AX-Evil:1']) {
     for (const suffix of ['', '/page/1', '/page/2']) {
       const response = await fetch(`${web.origin}/topics/${slug}${suffix}`, { redirect: 'manual' });
-      assert.equal(response.status, 404, `${slug}${suffix}: ${web.logs()}`);
+      // The one request-target judgement refuses an ambiguous target before any routing, so this never
+      // reaches the topic page; it is not a 404 from the router and never was a header injection.
+      assert.equal(response.status, 400, `${slug}${suffix}: ${web.logs()}`);
       assert.equal(response.headers.get('x-evil'), null);
       assert.equal(response.headers.get('location'), null);
     }

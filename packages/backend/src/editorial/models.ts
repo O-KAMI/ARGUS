@@ -4,6 +4,7 @@
 // changed model only affects work done from then on (history is not re-judged).
 import { READER_WORDING } from "@aihot/industry/wording";
 import { DEFAULTS } from "@aihot/site/models";
+import { config } from "../config.ts";
 import { sql } from "../db.ts";
 import { serverModules } from "../modules.ts";
 import { MODELS } from "../providers/llm.ts";
@@ -25,6 +26,7 @@ export const CAPABILITIES = {
   prefilter: { label: "精选预筛（是否属于这个行业，宽召回）", env: "PREFILTER_MODEL", default: DEFAULTS.prefilter ?? "default", purposes: ["prefilter_article"] },
   score: { label: "精选评分（按信源分级门槛决定入选）", env: "SCORE_MODEL", default: DEFAULTS.score ?? "default", purposes: ["score_article"] },
   understand: { label: "内容理解（入选和接近入选的标题、摘要、推荐理由，能看图时看首图）", env: "UNDERSTAND_MODEL", default: DEFAULTS.understand ?? "default", purposes: ["understand_article"] },
+  visionEvidence: { label: "视觉证据（学习轨短图文预筛前读图里的步骤；影子开关关时不调用）", env: "VISION_EVIDENCE_MODEL", default: DEFAULTS.understand ?? "default", purposes: ["vision_evidence"], vision: true, idle: () => !config.visionEvidenceShadow },
   summarize: { label: "标题摘要（其余文章的中文标题与摘要）", env: "SUMMARIZE_MODEL", default: DEFAULTS.summarize ?? "default", purposes: ["summarize_article"] },
   wording: { label: "改用词（标题、摘要、理由用了本站不用的词时，只改这些词）", env: "WORDING_MODEL", default: DEFAULTS.wording ?? "default", purposes: ["mend_wording"], idle: () => !READER_WORDING.length },
   structure: { label: "结构抽取（分类、标签、主体公司、事件事实，不写读者文字）", env: "STRUCTURE_MODEL", default: DEFAULTS.structure ?? "default", purposes: ["structure_article"] },

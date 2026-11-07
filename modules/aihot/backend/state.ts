@@ -11,7 +11,14 @@ export interface EndpointRow {
   holdUntil: Date | null;
   lastStatus: number | null;
   lastCount: number | null;
+  /** 最近一次有效验证：有效 200 或确认未变的 304；畸形 200 不推进它。 */
   lastOkAt: Date | null;
+  /** 最近一次真正发出请求的时间，无论答案是否可用。 */
+  lastAttemptAt: Date | null;
+  /** 最近一次拿到并应用新内容的时间；304 不推进它。 */
+  contentAt: Date | null;
+  /** 精选窗口最近一次完整读到末尾的时间；定期无条件对账以此为基准。 */
+  fullReadAt: Date | null;
   lastError: string | null;
   policy: UpstreamPolicy | null;
   /** The answer as it came; null until the address has been read whole once. */
@@ -27,6 +34,9 @@ export interface EndpointSave {
   lastStatus: number | null;
   lastCount: number | null;
   lastOkAt: Date | null;
+  lastAttemptAt: Date | null;
+  contentAt: Date | null;
+  fullReadAt: Date | null;
   lastError: string | null;
   policy: UpstreamPolicy | null;
   answer: unknown;
@@ -34,7 +44,8 @@ export interface EndpointSave {
 
 const rowOf = (row: {
   endpoint: string; etag: string | null; hold_until: Date | null; last_status: number | null; last_count: number | null;
-  last_ok_at: Date | null; last_error: string | null; policy: UpstreamPolicy | null; answer: unknown; updated_at: Date | null;
+  last_ok_at: Date | null; last_attempt_at: Date | null; content_at: Date | null; full_read_at: Date | null;
+  last_error: string | null; policy: UpstreamPolicy | null; answer: unknown; updated_at: Date | null;
 }): EndpointRow => ({
   endpoint: row.endpoint,
   etag: row.etag,
@@ -42,6 +53,9 @@ const rowOf = (row: {
   lastStatus: row.last_status,
   lastCount: row.last_count,
   lastOkAt: row.last_ok_at,
+  lastAttemptAt: row.last_attempt_at,
+  contentAt: row.content_at,
+  fullReadAt: row.full_read_at,
   lastError: row.last_error,
   policy: row.policy,
   answer: row.answer,
@@ -53,7 +67,7 @@ type Stored = Parameters<typeof rowOf>[0];
 export async function readEndpoints(endpoints: readonly string[], db: Db = sql): Promise<Map<string, EndpointRow>> {
   if (!endpoints.length) return new Map();
   const rows = await db<Stored[]>`
-    SELECT endpoint, etag, hold_until, last_status, last_count, last_ok_at, last_error, policy, answer, updated_at
+    SELECT endpoint, etag, hold_until, last_status, last_count, last_ok_at, last_attempt_at, content_at, full_read_at, last_error, policy, answer, updated_at
     FROM aihot_mirror_state WHERE endpoint = ANY(${endpoints})`;
   return new Map(rows.map((row) => [row.endpoint, rowOf(row)]));
 }
@@ -61,7 +75,7 @@ export async function readEndpoints(endpoints: readonly string[], db: Db = sql):
 /** Every row, for the owner's alerts and for a status read: what the mirror last heard from each address. */
 export async function endpointStates(db: Db = sql): Promise<EndpointRow[]> {
   return (await db<Stored[]>`
-    SELECT endpoint, etag, hold_until, last_status, last_count, last_ok_at, last_error, policy, answer, updated_at
+    SELECT endpoint, etag, hold_until, last_status, last_count, last_ok_at, last_attempt_at, content_at, full_read_at, last_error, policy, answer, updated_at
     FROM aihot_mirror_state ORDER BY endpoint`).map(rowOf);
 }
 
@@ -77,6 +91,9 @@ export function nextSave(previous: EndpointRow | null, endpoint: string, patch: 
     lastStatus: patch.lastStatus !== undefined ? patch.lastStatus : previous?.lastStatus ?? null,
     lastCount: patch.lastCount !== undefined ? patch.lastCount : previous?.lastCount ?? null,
     lastOkAt: patch.lastOkAt !== undefined ? patch.lastOkAt : previous?.lastOkAt ?? null,
+    lastAttemptAt: patch.lastAttemptAt !== undefined ? patch.lastAttemptAt : previous?.lastAttemptAt ?? null,
+    contentAt: patch.contentAt !== undefined ? patch.contentAt : previous?.contentAt ?? null,
+    fullReadAt: patch.fullReadAt !== undefined ? patch.fullReadAt : previous?.fullReadAt ?? null,
     lastError: patch.lastError !== undefined ? patch.lastError : previous?.lastError ?? null,
     policy: patch.policy !== undefined ? patch.policy : previous?.policy ?? null,
     answer: patch.answer !== undefined ? patch.answer : previous?.answer ?? null,
@@ -89,12 +106,14 @@ export async function saveEndpoints(saves: readonly EndpointSave[], db: Db = sql
   const write = async (d: Db) => {
     for (const save of saves) {
       await d`
-        INSERT INTO aihot_mirror_state (endpoint, etag, hold_until, last_status, last_count, last_ok_at, last_error, policy, answer, updated_at)
+        INSERT INTO aihot_mirror_state (endpoint, etag, hold_until, last_status, last_count, last_ok_at, last_attempt_at, content_at, full_read_at, last_error, policy, answer, updated_at)
         VALUES (${save.endpoint}, ${save.etag}, ${save.holdUntil}, ${save.lastStatus}, ${save.lastCount}, ${save.lastOkAt},
+          ${save.lastAttemptAt}, ${save.contentAt}, ${save.fullReadAt},
           ${save.lastError}, ${sql.json(save.policy as never)}, ${sql.json(save.answer as never)}, now())
         ON CONFLICT (endpoint) DO UPDATE SET
           etag = EXCLUDED.etag, hold_until = EXCLUDED.hold_until, last_status = EXCLUDED.last_status,
-          last_count = EXCLUDED.last_count, last_ok_at = EXCLUDED.last_ok_at, last_error = EXCLUDED.last_error,
+          last_count = EXCLUDED.last_count, last_ok_at = EXCLUDED.last_ok_at, last_attempt_at = EXCLUDED.last_attempt_at,
+          content_at = EXCLUDED.content_at, full_read_at = EXCLUDED.full_read_at, last_error = EXCLUDED.last_error,
           policy = EXCLUDED.policy, answer = EXCLUDED.answer, updated_at = now()`;
     }
   };

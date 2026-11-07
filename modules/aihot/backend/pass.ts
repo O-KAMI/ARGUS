@@ -8,8 +8,8 @@
 // ranking the public surfaces read is never one address ahead of the other.
 import { heldFor, nextSave, readEndpoints, saveEndpoints, type EndpointRow, type EndpointSave } from "./state.ts";
 import { invalidateSnapshot } from "./hot.ts";
-import { mirrorMaxSkewMinutes } from "./config.ts";
-import { emptyPass, ensureMirrorSource, stampMirrorSource, storeItems, type MirrorPass } from "./mirror.ts";
+import { MIRROR_FULL_READ_MS, mirrorMaxSkewMinutes } from "./config.ts";
+import { emptyPass, ensureMirrorSource, reconcileWindow, stampMirrorSource, storeItems, type MirrorPass } from "./mirror.ts";
 import { rankingOf, storedHot, storedTopics, type StoredHot, type StoredTopics } from "./snapshot.ts";
 import {
   ENDPOINTS, HOT_PATH, HOT_TOPICS_PATH, readSelected, SELECTED_PATH, UPSTREAM_ORIGIN, upstreamJson,
@@ -49,6 +49,8 @@ export type PassReport = {
    */
   skewMinutes: number | null;
   items: MirrorPass;
+  /** 完整窗口对账后按上游明确撤选撤下的镜像条数；partial 窗口恒为 0。 */
+  withdrawn: number;
   /** What went wrong or looked odd, in the order it happened; the run is `partial` when this is not empty. */
   problems: string[];
 };
@@ -105,7 +107,7 @@ async function readRanking<T, S>(
     const answer = await upstreamJson<T>(endpoint, previous?.etag, origin);
     if (answer.status === 304) {
       return {
-        save: nextSave(previous, endpoint, { lastStatus: 304, lastOkAt: now, lastError: null, policy: answer.policy ?? undefined }),
+        save: nextSave(previous, endpoint, { lastStatus: 304, lastOkAt: now, lastAttemptAt: now, lastError: null, policy: answer.policy ?? undefined }),
         read: { endpoint, status: 304, count: previous?.lastCount ?? null, held: null, error: null },
         value: kept,
       };
@@ -115,7 +117,7 @@ async function readRanking<T, S>(
       const error = `HTTP ${answer.status}，等待 ${answer.retryAfter ?? 0} 秒`;
       problems.push(`${endpoint} ${error}，本次跳过`);
       return {
-        save: nextSave(previous, endpoint, { lastStatus: answer.status, holdUntil: until, lastError: error, policy: answer.policy ?? undefined }),
+        save: nextSave(previous, endpoint, { lastStatus: answer.status, lastAttemptAt: now, holdUntil: until, lastError: error, policy: answer.policy ?? undefined }),
         read: { endpoint, status: answer.status, count: previous?.lastCount ?? null, held: secondsFrom(until, now), error },
         value: kept,
       };
@@ -123,8 +125,9 @@ async function readRanking<T, S>(
     const stored = narrow(answer.data);
     if (!stored) {
       problems.push(`${endpoint} 答了 200 但没有可用的条目，保留上一次的读数`);
+      // 畸形 200 不刷新有效性：last_ok_at 仍是上一次真正读到内容的时间，旧快照不冒充“刚成功”。
       return {
-        save: nextSave(previous, endpoint, { etag: null, lastStatus: 200, lastCount: 0, lastOkAt: now, lastError: "answer held no entries", policy: answer.policy ?? undefined }),
+        save: nextSave(previous, endpoint, { etag: null, lastStatus: 200, lastCount: 0, lastAttemptAt: now, lastError: "answer held no entries", policy: answer.policy ?? undefined }),
         read: { endpoint, status: 200, count: 0, held: null, error: "answer held no entries" },
         value: kept,
       };
@@ -132,7 +135,7 @@ async function readRanking<T, S>(
     const count = countOf(stored);
     return {
       save: nextSave(previous, endpoint, {
-        etag: answer.etag, holdUntil: null, lastStatus: 200, lastCount: count, lastOkAt: now, lastError: null,
+        etag: answer.etag, holdUntil: null, lastStatus: 200, lastCount: count, lastOkAt: now, lastAttemptAt: now, contentAt: now, lastError: null,
         policy: answer.policy, answer: stored,
       }),
       read: { endpoint, status: 200, count, held: null, error: null },
@@ -142,7 +145,7 @@ async function readRanking<T, S>(
     const message = String(error).slice(0, 400);
     problems.push(`${endpoint} 读取失败：${message}`);
     return {
-      save: nextSave(previous, endpoint, { lastStatus: null, lastError: message }),
+      save: nextSave(previous, endpoint, { lastStatus: null, lastAttemptAt: now, lastError: message }),
       read: { endpoint, status: null, count: previous?.lastCount ?? null, held: null, error: message },
       value: kept,
     };
@@ -158,7 +161,7 @@ export async function mirrorOnce(reason: string, now = new Date(), origin: strin
   const out: PassReport = {
     reason, startedAt: now.toISOString(), finishedAt: now.toISOString(), paused: false,
     endpoints: [], pages: 0, unchanged: false, truncated: false, stopReason: null, skewMinutes: null,
-    items: emptyPass(), problems: [],
+    items: emptyPass(), withdrawn: 0, problems: [],
   };
   if (!(await ensureMirrorSource()).enabled) {
     out.paused = true;
@@ -183,12 +186,14 @@ export async function mirrorOnce(reason: string, now = new Date(), origin: strin
     saves.push(nextSave(previousWindow, SELECTED_PATH, {}));
     out.endpoints.push({ endpoint: SELECTED_PATH, status: null, count: previousWindow?.lastCount ?? null, held, error: null });
   } else {
-    const window = await readSelected(previousWindow?.etag ?? null, origin).catch((error: unknown) => {
+    // 第一页的 ETag 只承诺第一页：距上次完整读取超过对账间隔就无条件全量重读，后页的更正不会被 304 无限期挡住。
+    const reconcileDue = !previousWindow?.fullReadAt || now.getTime() - previousWindow.fullReadAt.getTime() >= MIRROR_FULL_READ_MS;
+    const window = await readSelected(reconcileDue ? null : previousWindow?.etag ?? null, origin).catch((error: unknown) => {
       out.problems.push(`${SELECTED_PATH} 读取失败：${String(error)}`);
       return null;
     });
     if (!window) {
-      saves.push(nextSave(previousWindow, SELECTED_PATH, { lastStatus: null, lastError: "read failed" }));
+      saves.push(nextSave(previousWindow, SELECTED_PATH, { lastStatus: null, lastAttemptAt: now, lastError: "read failed" }));
       out.endpoints.push({ endpoint: SELECTED_PATH, status: null, count: previousWindow?.lastCount ?? null, held: null, error: "read failed" });
     } else if (window.wait) {
       const until = holdUntil(window.wait, now);
@@ -196,12 +201,13 @@ export async function mirrorOnce(reason: string, now = new Date(), origin: strin
       out.problems.push(`${SELECTED_PATH} ${error}，本次跳过`);
       out.stopReason = window.stopReason;
       out.truncated = window.truncated;
-      saves.push(nextSave(previousWindow, SELECTED_PATH, { lastStatus: 429, holdUntil: until, lastError: error }));
+      saves.push(nextSave(previousWindow, SELECTED_PATH, { lastStatus: 429, lastAttemptAt: now, holdUntil: until, lastError: error }));
       out.endpoints.push({ endpoint: SELECTED_PATH, status: 429, count: null, held: secondsFrom(until, now), error });
     } else if (window.unchanged) {
       out.unchanged = true;
       out.stopReason = window.stopReason;
-      saves.push(nextSave(previousWindow, SELECTED_PATH, { etag: window.etag, holdUntil: null, lastStatus: 304, lastOkAt: now, lastError: null }));
+      // 304 确认窗口未变（有效验证），但不是新内容的生成：content_at 不动。
+      saves.push(nextSave(previousWindow, SELECTED_PATH, { etag: window.etag, holdUntil: null, lastStatus: 304, lastOkAt: now, lastAttemptAt: now, lastError: null }));
       out.endpoints.push({ endpoint: SELECTED_PATH, status: 304, count: previousWindow?.lastCount ?? null, held: null, error: null });
     } else {
       out.pages = window.pages;
@@ -215,11 +221,19 @@ export async function mirrorOnce(reason: string, now = new Date(), origin: strin
         ? `truncated: ${window.stopReason === "max-pages" ? `读到第 ${window.pages} 页上游仍说有更多` : "分页中途断了"}，本次入库 ${window.items.length} 条，下次从头再读`
         : null;
       if (stopped) out.problems.push(`${SELECTED_PATH} ${stopped}`);
+      // 有可重试的未应用项就不确认这个版本：丢掉 ETag，下一轮无条件重读，上游始终 304 也能补齐。
+      if (out.items.failed) out.problems.push(`${SELECTED_PATH} ${out.items.failed} 条入库失败（可重试），本次不确认窗口版本，下次重读补齐`);
+      // 只有完整窗口才对账成员：缺席于完整精选且仍在窗口年龄内的是上游明确撤选；partial 绝不按缺席撤稿。
+      if (!window.truncated && window.items.length) {
+        out.withdrawn = (await reconcileWindow(window.items, now)).withdrawn;
+      }
       // A page that did not answer leaves the ETag alone (readSelected), so the next pass reads from the start.
       saves.push(nextSave(previousWindow, SELECTED_PATH, {
-        etag: window.etag, holdUntil: null, lastStatus: 200, lastCount: window.items.length, lastOkAt: now, lastError: stopped,
+        etag: out.items.failed ? null : window.etag, holdUntil: null, lastStatus: 200, lastCount: window.items.length,
+        lastOkAt: now, lastAttemptAt: now, contentAt: out.items.stored ? now : undefined,
+        fullReadAt: window.truncated ? undefined : now, lastError: stopped ?? (out.items.failed ? "items failed" : null),
       }));
-      out.endpoints.push({ endpoint: SELECTED_PATH, status: 200, count: window.items.length, held: null, error: stopped });
+      out.endpoints.push({ endpoint: SELECTED_PATH, status: 200, count: window.items.length, held: null, error: stopped ?? (out.items.failed ? "items failed" : null) });
     }
   }
 

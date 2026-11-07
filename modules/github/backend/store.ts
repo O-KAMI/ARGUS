@@ -32,6 +32,12 @@ export interface RepoInput {
   pushedAt: Date | null;
   /** The topic queries that produced it, kept beside the repository for the admin (方案 2.3 规则 3). */
   matchedTopics: string[];
+  /**
+   * Whether this reading carries the repository's whole profile. A Search answer does, so its nulls are
+   * confirmed absences (a removed homepage, cleared topics, an un-archived repository); a trending card
+   * does not, so what it lacks keeps the stored value.
+   */
+  profile: "partial" | "complete";
 }
 
 export interface RepositoryRow {
@@ -146,6 +152,8 @@ export async function upsertRepositories(inputs: readonly RepoInput[], db: Sql =
       continue;
     }
 
+    const whole = input.profile === "complete";
+    const kept = <T,>(incoming: T | null, existing: T | null): T | null => (whole ? incoming : merge(incoming, existing));
     const merged: RepositoryRow = {
       ...row,
       github_id: merge(input.githubId, row.github_id),
@@ -154,29 +162,36 @@ export async function upsertRepositories(inputs: readonly RepoInput[], db: Sql =
       owner_login: input.ownerLogin,
       name: input.name,
       html_url: input.htmlUrl,
-      description: merge(input.description, row.description),
-      homepage: merge(input.homepage, row.homepage),
-      language: merge(input.language, row.language),
+      description: kept(input.description, row.description),
+      homepage: kept(input.homepage, row.homepage),
+      language: kept(input.language, row.language),
       stargazers_count: input.stargazersCount ?? row.stargazers_count,
-      forks_count: merge(input.forksCount, row.forks_count),
-      open_issues_count: merge(input.openIssuesCount, row.open_issues_count),
-      license_spdx_id: merge(input.licenseSpdxId, row.license_spdx_id),
-      topics: input.topics.length ? input.topics : row.topics,
-      is_fork: input.isFork || row.is_fork,
-      is_archived: input.isArchived || row.is_archived,
-      created_at: merge(input.createdAt, row.created_at),
-      updated_at: merge(input.updatedAt, row.updated_at),
-      pushed_at: merge(input.pushedAt, row.pushed_at),
+      forks_count: kept(input.forksCount, row.forks_count),
+      open_issues_count: kept(input.openIssuesCount, row.open_issues_count),
+      license_spdx_id: kept(input.licenseSpdxId, row.license_spdx_id),
+      topics: whole ? input.topics : (input.topics.length ? input.topics : row.topics),
+      is_fork: whole ? input.isFork : input.isFork || row.is_fork,
+      is_archived: whole ? input.isArchived : input.isArchived || row.is_archived,
+      created_at: kept(input.createdAt, row.created_at),
+      updated_at: kept(input.updatedAt, row.updated_at),
+      pushed_at: kept(input.pushedAt, row.pushed_at),
       matched_topics: [...new Set([...row.matched_topics, ...input.matchedTopics])],
     };
-    // Nothing a reader would see changed: only the collection time moves, in one statement for all of them.
-    const sameMetadata = CLASSIFICATION_INPUTS.every((field) => {
+    // "The profile changed" and "the classification inputs changed" are two questions: filling github_id,
+    // language, forks, license or homepage is a visible update worth writing, but only description, topics
+    // and the names are evidence the classifier reads again (and a human's verdict still stands over it).
+    const profileOf = (r: RepositoryRow) => JSON.stringify([
+      r.github_id, r.node_id, r.full_name, r.owner_login, r.name, r.html_url, r.description, r.homepage,
+      r.language, r.stargazers_count, r.forks_count, r.open_issues_count, r.license_spdx_id, [...r.topics].sort(),
+      r.is_fork, r.is_archived, r.created_at?.getTime() ?? null, r.updated_at?.getTime() ?? null, r.pushed_at?.getTime() ?? null,
+    ]);
+    const profileChanged = profileOf(merged) !== profileOf(row);
+    const classificationChanged = CLASSIFICATION_INPUTS.some((field) => {
       const before = field === "topics" ? [...row.topics].sort().join(",") : String(row[field] ?? "");
       const after = field === "topics" ? [...merged.topics].sort().join(",") : String(merged[field] ?? "");
-      return before === after;
-    }) && merged.stargazers_count === row.stargazers_count && merged.is_archived === row.is_archived
-      && String(merged.pushed_at?.getTime() ?? "") === String(row.pushed_at?.getTime() ?? "");
-    if (sameMetadata) {
+      return before !== after;
+    });
+    if (!profileChanged) {
       untouched.push(row.pk);
       pks.set(key, row.pk);
       if (row.taxonomy_version !== githubConfig.taxonomyVersion && !row.manual_override) toClassify.push(row);
@@ -198,7 +213,7 @@ export async function upsertRepositories(inputs: readonly RepoInput[], db: Sql =
     byId.set(saved!.github_id ?? -saved!.pk, saved!);
     byLower.set(key, saved!);
     // An administrator's verdict stands: a later run never reclassifies over it (方案 3.4).
-    if (!saved!.manual_override) toClassify.push(saved!);
+    if (classificationChanged && !saved!.manual_override) toClassify.push(saved!);
   }
 
   if (untouched.length) await db`UPDATE github_repositories SET last_seen_at = now() WHERE pk = ANY(${untouched})`;
@@ -283,6 +298,46 @@ export async function replaceBoard(board: BoardType, entries: readonly BoardEntr
     }
   });
   return entries.length;
+}
+
+export type BoardCoverage = "complete" | "partial" | "empty";
+
+export interface BoardStateRow {
+  board_type: BoardType;
+  last_attempt_at: Date | null;
+  last_complete_at: Date | null;
+  version_at: Date | null;
+  coverage: BoardCoverage | null;
+  entries: number;
+  last_status: string | null;
+}
+
+/** What the last attempts left each board at: served version, its coverage, and when it was last read. */
+export async function readBoardStates(boards: readonly BoardType[] = ["all_weekly", "all_stars", "ai_weekly", "ai_stars"]): Promise<Map<BoardType, BoardStateRow>> {
+  const rows = await sql<BoardStateRow[]>`SELECT * FROM github_board_state WHERE board_type = ANY(${boards})`;
+  return new Map(rows.map((row) => [row.board_type, row]));
+}
+
+/**
+ * One row per board, written with the board itself: an attempt that replaced nothing still lands here.
+ * The caller decides what a kept board keeps (it holds the previous state); this writes the verdict.
+ */
+export async function writeBoardState(state: {
+  board: BoardType; lastAttemptAt: Date; lastStatus: string; entries: number;
+  coverage: BoardCoverage | null; versionAt: Date | null; lastCompleteAt: Date | null;
+}): Promise<void> {
+  await sql`
+    INSERT INTO github_board_state (board_type, last_attempt_at, last_complete_at, version_at, coverage, entries, last_status, updated_at)
+    VALUES (${state.board}, ${state.lastAttemptAt}, ${state.lastCompleteAt}, ${state.versionAt},
+            ${state.coverage}, ${state.entries}, ${state.lastStatus}, now())
+    ON CONFLICT (board_type) DO UPDATE SET
+      last_attempt_at = EXCLUDED.last_attempt_at,
+      last_complete_at = EXCLUDED.last_complete_at,
+      version_at = EXCLUDED.version_at,
+      coverage = EXCLUDED.coverage,
+      entries = EXCLUDED.entries,
+      last_status = EXCLUDED.last_status,
+      updated_at = now()`;
 }
 
 export async function startRun(sourceType: SourceType): Promise<string> {

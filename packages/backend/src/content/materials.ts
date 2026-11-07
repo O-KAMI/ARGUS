@@ -336,13 +336,18 @@ async function upsertIn(db: Db, m: MaterialInput): Promise<MaterialResult> {  m 
 
   const media = m.media ? sql.json(m.media as never) : null;
   await reviseMaterial(db, existing!.id, {
+    // "The report carried no body" and "the full content no longer names the asset" differ: a listing
+    // keeps the stored evidence, while a full read names what there is — or a removed link would keep
+    // recalling the old asset (and its fact) forever.
     set: sql`title = ${title}, author = coalesce(${m.author ?? null}, author), language = coalesce(${m.language ?? null}, language),
       source_updated_at = ${m.sourceUpdatedAt ?? null}, excerpt = coalesce(${m.excerpt ?? null}, excerpt),
       body_text = coalesce(${m.bodyText ?? null}, body_text), body_html = coalesce(${m.bodyHtml ?? null}, body_html),
       body_status = CASE WHEN ${m.bodyText ?? null}::text IS NULL THEN body_status ELSE ${m.bodyStatus ?? "ok"} END,
       media = CASE WHEN ${media}::jsonb IS NULL THEN media ELSE ${media}::jsonb END,
       x_post = coalesce(${m.xPost ? sql.json(m.xPost as never) : null}, x_post),
-      asset_key = coalesce(${assetOf(m, title, existing!.body_text, existing!.excerpt)}, asset_key)`,
+      asset_key = CASE WHEN ${m.bodyText ?? null}::text IS NULL
+        THEN coalesce(${assetOf(m, title, existing!.body_text, existing!.excerpt)}, asset_key)
+        ELSE ${assetOf(m, title)} END`,
     hash: next, title, bodyText,
   });
   return { articleId: existing!.id, created: false, revised: true, backfill: time?.backfill ?? existing!.backfill };

@@ -9,15 +9,21 @@ import { AI_TOPIC_QUERIES, classifyRepository } from "./classify.ts";
 import { GithubRateLimited, searchTopic, searchTopStars, type GithubRepo } from "./github-api.ts";
 import { fetchTrendingWeekly, TrendingParseError, type TrendingItem } from "./trending.ts";
 import {
-  applyClassifications, finishRun, replaceBoard, startRun, upsertRepositories,
-  type BoardEntry, type RepoInput,
+  applyClassifications, finishRun, readBoardStates, replaceBoard, startRun, upsertRepositories, writeBoardState,
+  type BoardCoverage, type BoardEntry, type RepoInput,
 } from "./store.ts";
+import { collectionEnabled } from "./config.ts";
+
+/** How much of a board's source this run actually saw. */
+export type SourceRead = "complete" | "empty" | "partial" | "failed";
 
 export interface BoardOutcome {
   board: BoardType;
   /** How many rows the board now has; 0 means it was left at its previous version. */
   entries: number;
   replaced: boolean;
+  /** The coverage of the version now served; a kept board keeps its previous coverage. */
+  coverage: BoardCoverage | null;
 }
 
 export interface RefreshResult {
@@ -33,6 +39,8 @@ export interface RefreshResult {
   boards: BoardOutcome[];
   /** What went wrong or looked odd, in the order it happened; the run is `partial` when this is not empty. */
   problems: string[];
+  /** The collection valve is closed: nothing was read, nothing was written. */
+  disabled?: boolean;
 }
 
 const repoInput = (repo: GithubRepo, matchedTopics: string[]): RepoInput => ({
@@ -56,6 +64,7 @@ const repoInput = (repo: GithubRepo, matchedTopics: string[]): RepoInput => ({
   updatedAt: repo.updatedAt,
   pushedAt: repo.pushedAt,
   matchedTopics,
+  profile: "complete",
 });
 
 const trendingInput = (item: TrendingItem): RepoInput => ({
@@ -79,28 +88,29 @@ const trendingInput = (item: TrendingItem): RepoInput => ({
   updatedAt: null,
   pushedAt: null,
   matchedTopics: ["trending-weekly"],
+  profile: "partial",
 });
 
 /** The weekly boards' shared source: the trending page, whose order is the ranking (方案 4.1). */
-async function collectTrending(problems: string[]): Promise<{ items: TrendingItem[]; sourceUrl: string }> {
+async function collectTrending(problems: string[]): Promise<{ items: TrendingItem[]; sourceUrl: string; read: SourceRead }> {
   const run = await startRun("trending");
   try {
     const page = await fetchTrendingWeekly();
     problems.push(...page.warnings);
-    await finishRun(run, { status: "success", itemsCount: page.items.length });
-    return { items: page.items, sourceUrl: page.sourceUrl };
+    await finishRun(run, { status: page.warnings.length ? "partial" : "success", itemsCount: page.items.length });
+    return { items: page.items, sourceUrl: page.sourceUrl, read: page.warnings.length ? "partial" : page.items.length ? "complete" : "empty" };
   } catch (error) {
     const message = (error as Error).message.slice(0, 2000);
     await finishRun(run, { status: "failed", errorMessage: message });
     problems.push(error instanceof TrendingParseError ? message
       : error instanceof GithubRateLimited ? `周榜采集被限流，保留上一版周榜：${message}`
         : `周榜采集失败，保留上一版周榜：${message}`);
-    return { items: [], sourceUrl: githubConfig.trendingWeeklyUrl };
+    return { items: [], sourceUrl: githubConfig.trendingWeeklyUrl, read: "failed" };
   }
 }
 
 /** The whole star board: pages of the Search API by cumulative stars (方案 2.2). */
-async function collectAllStars(problems: string[]): Promise<GithubRepo[]> {
+async function collectAllStars(problems: string[]): Promise<{ repos: GithubRepo[]; read: SourceRead }> {
   const run = await startRun("search_all");
   try {
     const found = await searchTopStars(githubConfig.allStarsLimit);
@@ -112,11 +122,12 @@ async function collectAllStars(problems: string[]): Promise<GithubRepo[]> {
       incompleteResults: found.incompleteResults,
       errorMessage: found.rateLimited,
     });
-    return found.repos;
+    const read = found.rateLimited || found.incompleteResults ? "partial" : found.repos.length ? "complete" : "empty";
+    return { repos: found.repos, read };
   } catch (error) {
     await finishRun(run, { status: "failed", errorMessage: (error as Error).message.slice(0, 2000) });
     problems.push(`总榜采集失败，保留上一版总榜：${(error as Error).message.slice(0, 400)}`);
-    return [];
+    return { repos: [], read: "failed" };
   }
 }
 
@@ -128,7 +139,7 @@ type AiCandidate = GithubRepo & { matchedTopics: string[] };
  * A topic that fails is reported and the others still complete (方案 2.3, 7.3). A rate-limited topic ends the
  * loop: the limit is on the token, so the topics after it would each be refused in turn (方案 7.3 不要持续快速重试).
  */
-async function collectAiTopics(problems: string[]): Promise<AiCandidate[]> {
+async function collectAiTopics(problems: string[]): Promise<{ repos: AiCandidate[]; read: SourceRead }> {
   const run = await startRun("search_ai");
   const byId = new Map<number, AiCandidate>();
   const failures: string[] = [];
@@ -153,22 +164,38 @@ async function collectAiTopics(problems: string[]): Promise<AiCandidate[]> {
   const repos = [...byId.values()];
   if (failures.length) problems.push(`${failures.length}/${AI_TOPIC_QUERIES.length} 个 AI Topic 查询失败：${failures.slice(0, 3).join("；")}`);
   if (incompleteResults) problems.push("GitHub 搜索接口报告 AI Topic 结果不完整（incomplete_results）");
+  const degraded = failures.length > 0 || incompleteResults;
   await finishRun(run, {
-    status: repos.length === 0 ? "failed" : failures.length || incompleteResults ? "partial" : "success",
+    status: repos.length === 0 && queried === failures.length ? "failed" : degraded ? "partial" : "success",
     itemsCount: repos.length,
     incompleteResults,
     errorMessage: failures.length ? failures.slice(0, 5).join("；").slice(0, 2000) : null,
   });
-  return repos;
+  const read: SourceRead = repos.length ? (degraded ? "partial" : "complete") : queried === failures.length ? "failed" : degraded ? "partial" : "empty";
+  return { repos, read };
 }
 
-/** `null` leaves the board at its previous version: an empty source is never an empty board. */
-async function writeBoard(board: BoardType, entries: BoardEntry[] | null, fetchedAt: Date): Promise<BoardOutcome> {
-  if (entries === null || entries.length === 0) {
-    const [kept] = await sql<{ entries: number }[]>`SELECT count(*)::int AS entries FROM github_ranking_entries WHERE board_type = ${board}`;
-    return { board, entries: kept?.entries ?? 0, replaced: false };
-  }
-  return { board, entries: await replaceBoard(board, entries, fetchedAt), replaced: true };
+/**
+ * What one source reading may do to its board. A complete reading publishes its version, empty included:
+ * a source that answers with nothing has cleared its board, and keeping the old rows would serve repos
+ * the source no longer lists. A partial or failed reading never replaces a complete version — but with
+ * no complete version yet (a cold start) the observed candidates are served, labelled partial.
+ */
+async function writeBoard(board: BoardType, entries: BoardEntry[], fetchedAt: Date, read: SourceRead): Promise<BoardOutcome> {
+  const [state] = await readBoardStates([board]).then((map) => [map.get(board)]);
+  const hadComplete = state?.coverage === "complete" || state?.coverage === "empty";
+  const replace = read === "complete" || read === "empty" || (read === "partial" && !hadComplete);
+  const rows = replace ? await replaceBoard(board, entries, fetchedAt) : null;
+  const [kept] = rows === null
+    ? await sql<{ entries: number }[]>`SELECT count(*)::int AS entries FROM github_ranking_entries WHERE board_type = ${board}`
+    : [];
+  const entriesNow = rows ?? kept?.entries ?? 0;
+  // A kept board keeps the version it serves: its coverage, its version time and its last complete read.
+  const coverage: BoardCoverage | null = replace ? (read === "partial" ? "partial" : entries.length ? "complete" : "empty") : state?.coverage ?? null;
+  const versionAt = replace ? fetchedAt : state?.version_at ?? null;
+  const lastCompleteAt = replace && (read === "complete" || read === "empty") ? fetchedAt : state?.last_complete_at ?? null;
+  await writeBoardState({ board, lastAttemptAt: fetchedAt, lastStatus: read, entries: entriesNow, coverage, versionAt, lastCompleteAt });
+  return { board, entries: entriesNow, replaced: replace, coverage };
 }
 
 async function collect(reason: string): Promise<RefreshResult> {
@@ -181,8 +208,8 @@ async function collect(reason: string): Promise<RefreshResult> {
 
   const inputs: RepoInput[] = [
     ...trending.items.map(trendingInput),
-    ...allStars.map((repo) => repoInput(repo, ["search:stars"])),
-    ...aiTopics.map((repo) => repoInput(repo, repo.matchedTopics.map((topic) => `topic:${topic}`))),
+    ...allStars.repos.map((repo) => repoInput(repo, ["search:stars"])),
+    ...aiTopics.repos.map((repo) => repoInput(repo, repo.matchedTopics.map((topic) => `topic:${topic}`))),
   ];
   const saved = await upsertRepositories(inputs);
 
@@ -234,28 +261,39 @@ async function collect(reason: string): Promise<RefreshResult> {
   }
   // 全站总榜：the Search API's own star-descending order.
   const starBoard: BoardEntry[] = [];
-  for (const repo of allStars) {
+  for (const repo of allStars.repos) {
     const repositoryId = pkOf(repo.fullName);
     if (repositoryId === undefined) continue;
     starBoard.push({ repositoryId, rank: starBoard.length + 1, sourceRank: null, sourceUrl: repo.htmlUrl });
   }
   // AI 总榜：the topic candidates that are AI, by stars and then by full_name so equal stars stay put.
-  const aiStars = aiTopics
-    .filter((repo) => {
-      const repositoryId = pkOf(repo.fullName);
-      return repositoryId !== undefined && aiFlags.get(repositoryId);
-    })
-    .sort((a, b) => b.stargazersCount - a.stargazersCount || a.fullName.localeCompare(b.fullName))
-    .map((repo, index) => ({ repositoryId: pkOf(repo.fullName)!, rank: index + 1, sourceRank: null, sourceUrl: repo.htmlUrl }));
+  // An administrator's include joins the candidates even when this run's queries never saw the repository:
+  // the verdict says what is AI, the run only says where it ranks (方案 8.4).
+  const aiStarsPool = new Map<number, { stars: number; fullName: string; htmlUrl: string }>();
+  for (const repo of aiTopics.repos) {
+    const repositoryId = pkOf(repo.fullName);
+    if (repositoryId !== undefined && aiFlags.get(repositoryId)) {
+      aiStarsPool.set(repositoryId, { stars: repo.stargazersCount, fullName: repo.fullName, htmlUrl: repo.htmlUrl });
+    }
+  }
+  for (const row of await sql<{ pk: number; full_name: string; html_url: string; stargazers_count: number }[]>`
+    SELECT pk, full_name, html_url, stargazers_count FROM github_repositories WHERE manual_override = 'include' AND is_ai`) {
+    if (!aiStarsPool.has(row.pk)) aiStarsPool.set(row.pk, { stars: row.stargazers_count, fullName: row.full_name, htmlUrl: row.html_url });
+  }
+  const aiStars = [...aiStarsPool.entries()]
+    .sort((a, b) => b[1].stars - a[1].stars || a[1].fullName.localeCompare(b[1].fullName))
+    .map(([repositoryId, repo], index) => ({ repositoryId, rank: index + 1, sourceRank: null, sourceUrl: repo.htmlUrl }));
 
   const boards = [
-    await writeBoard("all_weekly", trending.items.length ? weekly : null, fetchedAt),
-    await writeBoard("ai_weekly", trending.items.length ? aiWeekly : null, fetchedAt),
-    await writeBoard("all_stars", allStars.length ? starBoard : null, fetchedAt),
-    await writeBoard("ai_stars", aiTopics.length ? aiStars : null, fetchedAt),
+    await writeBoard("all_weekly", weekly, fetchedAt, trending.read),
+    // The AI weekly board is the parent weekly's AI subset: it shares the parent's reading, and therefore
+    // its version — a kept parent keeps its subset, a cleared parent clears it.
+    await writeBoard("ai_weekly", aiWeekly, fetchedAt, trending.read),
+    await writeBoard("all_stars", starBoard, fetchedAt, allStars.read),
+    await writeBoard("ai_stars", aiStars, fetchedAt, aiTopics.read),
   ];
   for (const outcome of boards) {
-    if (!outcome.replaced) problems.push(`${outcome.board} 没有新数据，保留上一版榜单`);
+    if (!outcome.replaced) problems.push(`${outcome.board} 没有可用的完整读取，保留上一版榜单`);
   }
 
   return {
@@ -263,8 +301,8 @@ async function collect(reason: string): Promise<RefreshResult> {
     startedAt: startedAt.toISOString(),
     finishedAt: new Date().toISOString(),
     trendingItems: trending.items.length,
-    allStarsCandidates: allStars.length,
-    aiTopicCandidates: aiTopics.length,
+    allStarsCandidates: allStars.repos.length,
+    aiTopicCandidates: aiTopics.repos.length,
     repositories: { inserted: saved.inserted, updated: saved.updated, unchanged: saved.unchanged },
     classified,
     aiRepositories,
@@ -282,7 +320,19 @@ let inFlight: Promise<RefreshResult> | null = null;
  * same board twice and the second insert would trip its (board_type, repository_id) key, leaving the four
  * boards half-updated. The second caller joins the first and gets its result.
  */
+const disabledResult = (reason: string): RefreshResult => {
+  const at = new Date().toISOString();
+  return {
+    reason, startedAt: at, finishedAt: at, trendingItems: 0, allStarsCandidates: 0, aiTopicCandidates: 0,
+    repositories: { inserted: 0, updated: 0, unchanged: 0 }, classified: 0, aiRepositories: 0, boards: [],
+    problems: ["COLLECT_ENABLED 关闭，本次不采集：对外请求数为 0，榜单保持原版本"], disabled: true,
+  };
+};
+
 export function refreshGithubRankings(reason = "schedule"): Promise<RefreshResult> {
+  // The one execution entry every path shares: the schedule, the admin's button and leftover queue jobs.
+  // Closed valve means no run row, no request and no board write, whichever door was knocked on.
+  if (!collectionEnabled()) return Promise.resolve(disabledResult(reason));
   if (inFlight) return inFlight;
   const done = collect(reason).finally(() => { inFlight = null; });
   inFlight = done;

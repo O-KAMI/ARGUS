@@ -1,7 +1,7 @@
 // Selection evaluation cases (one human gold decision per line) and their metrics. Whether a case is
 // selected is the site's own rule (editorial/analyze.ts), never a copy of it.
 import { z } from "zod";
-import { scoresSelect, type AnalysisRun } from "@aihot/backend/editorial/analyze";
+import { scoresSelect, secondScoreWanted, type AnalysisRun } from "@aihot/backend/editorial/analyze";
 import { binaryMetrics, nonEmpty, nullableString, parseCasesJsonl, round, SamplingContext } from "./eval-tools.ts";
 
 /** "either": both decisions are acceptable; such cases stay out of the decisive metrics. */
@@ -90,17 +90,45 @@ export function selectionMetrics(cases: SelectionMetricCase[]) {
 /** A case's outcome: past the prefilter or not, and its scores; `available` false when it failed. */
 export interface SelectionThresholdCase {
   gold: SelectionGoldDecision;
+  track: SelectionGoldTrack;
   available: boolean;
   passed: boolean;
   scores: AnalysisRun["scores"];
 }
 
-/** The decisions had every case been held against `threshold` instead of the one its track gives it. */
+/**
+ * The decision a stored score run yields under `threshold`, replayed with the production stopping rule
+ * (secondScoreWanted + scoresSelect, the same functions the worker runs): the second call happens only
+ * when the first verdict sits on the threshold, so a run scored under another threshold may hold no
+ * second value where this one wants it. That gap is reported as `missing` and decides nothing — never a
+ * low score (a confident reject the pipeline would not have made) and never a success.
+ */
+export function replaySelectionDecision(
+  track: SelectionGoldTrack,
+  scores: AnalysisRun["scores"],
+  threshold: number,
+): { decision: SelectionDecision; second: "stored" | "unwanted" } | { decision: null; second: "missing" } | null {
+  if (!scores || scores.refused || scores.values.length === 0) return null;
+  const first = scores.values[0]!;
+  if (!secondScoreWanted(track, first, threshold)) {
+    return { decision: scoresSelect({ ...scores, values: [first] }, threshold) ? "select" : "reject", second: "unwanted" };
+  }
+  if (scores.values.length < 2) return { decision: null, second: "missing" };
+  return { decision: scoresSelect(scores, threshold) ? "select" : "reject", second: "stored" };
+}
+
+/** The decisions had every case been held against `threshold`, each replayed through the stopping rule. */
 export function selectionThresholdMetrics(cases: SelectionThresholdCase[], threshold: number) {
-  const metrics = selectionMetrics(cases.map((row) => ({
+  const replayed = cases.map((row) => ({
     gold: row.gold,
-    decision: row.available ? (row.passed && scoresSelect(row.scores, threshold) ? "select" : "reject") : null,
-  })));
+    replay: row.available && row.passed && row.scores ? replaySelectionDecision(row.track, row.scores, threshold) : null,
+  }));
+  const metrics = selectionMetrics(replayed.map((row) => ({ gold: row.gold, decision: row.replay?.decision ?? null })));
+  // What running at this threshold would cost: one call each, plus the second opinions its own stopping
+  // rule asks for. A stored run that lacks a wanted second opinion leaves the question open (gap), and
+  // the offline sampling that paid for the stored answers is reported separately by the run's receipts.
+  const answered = replayed.filter((row) => row.replay !== null);
+  const calls = answered.reduce((total, row) => total + 1 + (row.replay!.second === "unwanted" ? 0 : 1), 0);
   return {
     t: threshold,
     acc: metrics.accuracy,
@@ -116,5 +144,9 @@ export function selectionThresholdMetrics(cases: SelectionThresholdCase[], thres
     decisive: metrics.decisive,
     decisiveGold: metrics.decisiveGold,
     decisiveErrors: metrics.decisiveErrors,
+    /** Cases whose stored answers cannot answer this threshold (a wanted second opinion was never asked). */
+    gap: replayed.filter((row) => row.replay?.second === "missing").length,
+    /** Expected score calls per 100 answered cases were this threshold live. */
+    calls100: answered.length ? round((100 * calls) / answered.length) : null,
   };
 }

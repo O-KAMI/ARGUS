@@ -114,7 +114,8 @@ test('hover downloads nothing, a press fetches article data once for its click, 
     // In one task, as a scroll moves within the hold that makes a still touch a press; two calls can be further apart.
     await link.evaluate(a=>{for(const type of ['touchstart','touchmove'])a.dispatchEvent(new TouchEvent(type,{bubbles:true,cancelable:true,composed:true}));});
     await link.hover();await page.waitForTimeout(300);
-    await page.getByRole('heading',{name:'今日热点',exact:true}).click();
+    // The heading names the snapshot's own day when the reading is older than today (audit 2026-11-04 五).
+    await page.getByRole('heading',{name:/热点/}).first().click();
     assert.equal(hits.slice(start).filter(x=>x.startsWith('/api/site/items/')).length,0);
     await link.click();await expect(page.getByText('固定正文',{exact:true})).toBeVisible();
     assert.equal(hits.slice(start).filter(x=>x.startsWith('/api/site/items/')).length,1,'the click reuses the prefetch its press started');
@@ -123,7 +124,7 @@ test('hover downloads nothing, a press fetches article data once for its click, 
       await visit(freshPage,origin+'/');failing='/api/site/items/navigation-fixture';
       const failed=freshPage.waitForResponse(r=>r.url().includes('/items/navigation-fixture.data')&&r.status()===503);
       await freshPage.getByRole('link',{name:'性能检查文章',exact:true}).dispatchEvent('pointerdown',press);await failed;
-      await expect(freshPage.getByRole('heading',{name:'今日热点',exact:true})).toBeVisible();
+      await expect(freshPage.getByRole('heading',{name:/热点/}).first()).toBeVisible();
     }finally{await fresh.close();}
   }finally{failing='';await context.close();}
 });
@@ -296,4 +297,18 @@ test('deep reading returns to its anchor, including folded dates',async()=>{
     await expect.poll(()=>page.locator(`[data-card-key="${before.key}"]`).evaluate((e,top)=>Math.abs(e.getBoundingClientRect().top-top),before.top)).toBeLessThan(2);
     await expect(page.getByRole('button',{name:'展开10月4日',exact:true})).toBeVisible();
   }finally{await context.close();}
+});
+
+// 审计 2026-11-04 五：首页用 Promise.all 等时间线、热点、主题，辅助模块异常曾阻断整页。时间线是主要
+// 阅读任务：辅助接口 503 时页面仍要 200 且时间线可读，坏掉的只是它自己的板。
+for (const auxiliary of ["/api/site/hot", "/api/site/topics"]) test(`the home page serves its timeline while ${auxiliary} answers 503`, async () => {
+  failing = auxiliary;
+  try {
+    const res = await fetch(`${origin}/`);
+    assert.equal(res.status, 200, "an auxiliary failure is not a page failure");
+    const html = await res.text();
+    assert.ok(html.includes("性能检查文章"), "the timeline still renders");
+  } finally {
+    failing = "";
+  }
 });

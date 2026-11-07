@@ -76,17 +76,55 @@ jobs:
       # leaves empty; the smoke check then reads that empty database.
       - name: Backend tests
         run: npm test
-      - name: Smoke check of the built site
+      - name: Smoke check of the built site, public then private
         # The site itself runs with collection and model calls off (the tests above use local stubs).
+        # Both access contracts are exercised: public answers every exit, private walls off an anonymous
+        # reader and answers a signed-in one. The default is private, so neither mode may be implicit.
         env:
           COLLECT_ENABLED: "false"
           MODEL_CALLS_ENABLED: "false"
+          CI_INTERNAL_TOKEN: ci-internal-token-0123456789abcdef0123456789
+          CI_ADMIN_PASSWORD: ci-admin-password
         run: |
-          node apps/api/src/main.ts > "$RUNNER_TEMP/api.log" 2>&1 &
-          (cd apps/web && NODE_ENV=production exec node server.ts) > "$RUNNER_TEMP/web.log" 2>&1 &
-          for i in $(seq 1 60); do curl -fsS -o /dev/null http://127.0.0.1:3000/api/health 2>/dev/null && break; sleep 1; done
-          node scripts/smoke.ts --base http://127.0.0.1:3000
+          set -euo pipefail
+          start() {
+            node apps/api/src/main.ts > "$RUNNER_TEMP/api.log" 2>&1 &
+            API_PID=$!
+            (cd apps/web && NODE_ENV=production exec node server.ts) > "$RUNNER_TEMP/web.log" 2>&1 &
+            WEB_PID=$!
+            for i in $(seq 1 60); do curl -fsS -o /dev/null http://127.0.0.1:3000/api/health 2>/dev/null && return 0; sleep 1; done
+            echo "site did not become healthy"; tail -n 40 "$RUNNER_TEMP/api.log" "$RUNNER_TEMP/web.log"; return 1
+          }
+          stop() { kill "$WEB_PID" "$API_PID" 2>/dev/null || true; wait "$WEB_PID" "$API_PID" 2>/dev/null || true; }
+
+          export PRIVATE_ACCESS=false
+          start
+          node scripts/smoke.ts --base http://127.0.0.1:3000 --access public
           node scripts/mcp-check.ts http://127.0.0.1:3000/api/mcp
+          stop
+
+          export PRIVATE_ACCESS=true INTERNAL_TOKEN="$CI_INTERNAL_TOKEN" ADMIN_PASSWORD="$CI_ADMIN_PASSWORD"
+          start
+          node scripts/smoke.ts --base http://127.0.0.1:3000 --access private
+          # The exempt prefixes must not carry an anonymous request to a private page or its navigation data.
+          for path in '/assets/%2e%2e/hot' '/admin/login/../../hot.data' '/hot' '/hot.data'; do
+            code=$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:3000$path")
+            case "$code" in 200) echo "anonymous read of $path answered 200"; exit 1;; esac
+          done
+          SMOKE_COOKIE=$(node --input-type=module -e '
+            const res = await fetch("http://127.0.0.1:3000/api/auth/password", {
+              method: "POST", redirect: "manual",
+              headers: { "content-type": "application/x-www-form-urlencoded" },
+              body: new URLSearchParams({ password: process.env.ADMIN_PASSWORD, return: "/" }),
+            });
+            if (res.status !== 303) { console.error(`sign-in answered ${res.status}`); process.exit(1); }
+            const cookie = res.headers.getSetCookie().map((c) => c.split(";")[0]).join("; ");
+            if (!cookie) { console.error("sign-in set no session cookie"); process.exit(1); }
+            process.stdout.write(cookie);
+          ')
+          export SMOKE_COOKIE
+          node scripts/smoke.ts --base http://127.0.0.1:3000 --access private
+          stop
       - name: Server logs
         if: failure()
         run: tail -n 60 "$RUNNER_TEMP/api.log" "$RUNNER_TEMP/web.log" 2>/dev/null || true
@@ -110,10 +148,28 @@ jobs:
       - name: Build and start with docker compose
         run: docker compose up -d --build
       - name: Smoke check
+        # init-env turns private access on, so the anonymous run must meet the sign-in wall and a
+        # signed-in run must read every exit. Both contracts are checked, neither is assumed.
         run: |
+          set -euo pipefail
           for i in $(seq 1 90); do curl -fsS -o /dev/null http://127.0.0.1:3000/api/health 2>/dev/null && break; sleep 2; done
           docker compose ps
-          docker compose run --rm --no-deps --entrypoint node setup scripts/smoke.ts --base http://web:3000
+          docker compose run --rm --no-deps --entrypoint node setup scripts/smoke.ts --base http://web:3000 --access private
+          ADMIN_PASSWORD=$(node --env-file=.env -e 'process.stdout.write(process.env.ADMIN_PASSWORD ?? "")')
+          test -n "$ADMIN_PASSWORD"
+          SMOKE_COOKIE=$(ADMIN_PASSWORD="$ADMIN_PASSWORD" node --input-type=module -e '
+            const res = await fetch("http://127.0.0.1:3000/api/auth/password", {
+              method: "POST", redirect: "manual",
+              headers: { "content-type": "application/x-www-form-urlencoded" },
+              body: new URLSearchParams({ password: process.env.ADMIN_PASSWORD, return: "/" }),
+            });
+            if (res.status !== 303) { console.error(`sign-in answered ${res.status}`); process.exit(1); }
+            const cookie = res.headers.getSetCookie().map((c) => c.split(";")[0]).join("; ");
+            if (!cookie) { console.error("sign-in set no session cookie"); process.exit(1); }
+            process.stdout.write(cookie);
+          ')
+          export SMOKE_COOKIE
+          docker compose run --rm --no-deps -e SMOKE_COOKIE --entrypoint node setup scripts/smoke.ts --base http://web:3000 --access private
           docker compose exec -T db psql -U aihot -d aihot -Atc "select count(*) from sources" | grep -qx "$(node -p "require('./industry/sources.json').sources.length")"
       - name: Logs
         if: failure()

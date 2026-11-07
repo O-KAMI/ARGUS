@@ -35,7 +35,7 @@ export function Step({ n, title, children }: { n: number; title: string; childre
 /** A section inside a panel, under a hairline. */
 export function Block({ title, id, children }: { title: string; id?: string; children: ReactNode }) {
   return (
-    <section id={id} className="mt-10 scroll-mt-24 border-t border-line pt-6">
+    <section id={id} className="mt-10 scroll-mt-[calc(var(--bar-h)+24px)] border-t border-line pt-6">
       <h3 className="mb-3 text-[16px] font-semibold text-ink">{title}</h3>
       <div className="text-[14px] leading-[1.8] text-ink-2">{children}</div>
     </section>

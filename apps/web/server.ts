@@ -10,6 +10,7 @@ import { pathToFileURL } from "node:url";
 import { createRequestListener } from "@react-router/node";
 import type { ServerBuild } from "react-router";
 import { isApiOwned, resolveRedirect } from "@aihot/contracts/http-policy";
+import { privateAccessFromEnv } from "@aihot/contracts/private-access";
 import { API_BASE_URL, BROWSER_MAX_SECONDS } from "./app/lib/api.server.ts";
 import { proxyToApi } from "./app/lib/api-proxy.server.ts";
 import { logError } from "./app/lib/errors.server.ts";
@@ -23,18 +24,22 @@ const HOST = process.env.WEB_HOST || "127.0.0.1";
  */
 const TRUST_PROXY = process.env.TRUST_PROXY === "true";
 /** ARGUS is private by default: every reader document needs a signed-in session when this is on. */
-const PRIVATE_ACCESS = (process.env.PRIVATE_ACCESS || "true") === "true";
+const PRIVATE_ACCESS = privateAccessFromEnv(process.env.PRIVATE_ACCESS);
 if (PRIVATE_ACCESS && (process.env.INTERNAL_TOKEN || "").length < 32) {
   throw new Error("PRIVATE_ACCESS requires INTERNAL_TOKEN (at least 32 characters) shared by the web and api processes");
 }
+const STATIC_ASSET = /^\/assets\//;
+const ROOT_FILES = /^\/(?:favicon\.ico|favicon\.svg|icon\.png|icon-192\.png|apple-icon\.png|manifest\.webmanifest|robots\.txt)$/;
 /** Sign-in, health and the build assets stay reachable; everything else is checked against the api. */
 const PRIVATE_ALLOW = [
   /^\/admin\/login(?:\/|$)/,
-  /^\/assets\//,
-  /^\/(?:favicon\.ico|favicon\.svg|icon\.png|icon-192\.png|apple-icon\.png|manifest\.webmanifest|robots\.txt)$/,
+  STATIC_ASSET,
+  ROOT_FILES,
   /^\/api\/auth\//,
   /^\/api\/health$/,
 ];
+/** The api authenticates these itself with the ingest Bearer, so a reader session is beside the point. */
+const API_SELF_AUTHED = [/^\/api\/ingest\//];
 async function readerSignedIn(req: import("node:http").IncomingMessage): Promise<boolean> {
   try {
     const res = await fetch(`${API_BASE_URL}/api/auth/check`, {
@@ -76,6 +81,30 @@ const routes = Object.fromEntries(Object.entries(build.routes).map(([id, route])
 const ssr = createRequestListener({ build: { ...build, routes }, mode: "production" });
 
 class BadRequest extends Error {}
+
+/**
+ * The one path every decision reads: the reader gate, the api-ownership table, the static lookup and the
+ * router. A target one of them normalizes and another does not is a private page answered to an anonymous
+ * reader, so an ambiguous target is refused rather than guessed at. Nothing this site serves needs an
+ * encoded separator, an encoded dot or a dot segment.
+ */
+function requestTarget(raw: string): { pathname: string; search: string } {
+  const qi = raw.indexOf("?");
+  const target = qi >= 0 ? raw.slice(0, qi) : raw;
+  const search = qi >= 0 ? raw.slice(qi) : "";
+  const control = /[\s\u0000-\u001f\u007f\\]/;
+  if (!target.startsWith("/") || control.test(target) || /%(?:2f|5c|2e)/i.test(target)) throw new BadRequest("ambiguous request target");
+  let pathname: string;
+  try {
+    pathname = decodeURIComponent(target);
+  } catch {
+    throw new BadRequest("malformed percent-encoding");
+  }
+  if (control.test(pathname) || pathname.split("/").some((segment) => segment === "." || segment === "..")) {
+    throw new BadRequest("ambiguous request target");
+  }
+  return { pathname, search };
+}
 
 /** Text-like bodies worth compressing; paintings, photos and fonts arrive compressed already. */
 const COMPRESSIBLE = ["text/", "application/json", "application/javascript", "application/manifest+json", "image/svg+xml"];
@@ -128,18 +157,12 @@ function withGzip(req: import("node:http").IncomingMessage, res: import("node:ht
 
 /** Hashed build assets are immutable; anything else from the client build gets a short cache. */
 async function serveStatic(pathname: string, res: import("node:http").ServerResponse): Promise<boolean> {
-  if (pathname.includes("..") || pathname.endsWith("/")) return false;
-  let decoded: string;
-  try {
-    decoded = decodeURIComponent(pathname);
-  } catch {
-    throw new BadRequest("malformed percent-encoding");
-  }
-  const file = path.join(CLIENT_DIR, decoded);
+  if (pathname.endsWith("/")) return false;
+  const file = path.join(CLIENT_DIR, pathname);
   if (!file.startsWith(CLIENT_DIR)) return false;
   const info = await stat(file).catch(() => null);
   if (!info?.isFile()) return false;
-  const immutable = pathname.startsWith("/assets/");
+  const immutable = STATIC_ASSET.test(pathname);
   const type = TYPES[path.extname(file)] ?? "application/octet-stream";
   const cached = immutable ? gzipCache.get(pathname) : undefined;
   if (cached && wantsGzip(res.req)) {
@@ -249,10 +272,7 @@ function pageResponse(req: import("node:http").IncomingMessage, res: import("nod
 }
 
 async function handle(req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse) {
-  const raw = req.url ?? "/";
-  const qi = raw.indexOf("?");
-  const pathname = qi >= 0 ? raw.slice(0, qi) : raw;
-  const search = qi >= 0 ? raw.slice(qi) : "";
+  const { pathname, search } = requestTarget(req.url ?? "/");
 
   const decision = resolveRedirect(pathname, search);
   if (decision) {
@@ -262,7 +282,7 @@ async function handle(req: import("node:http").IncomingMessage, res: import("nod
     return res.end(decision.location ? undefined : decision.status === 410 ? "Gone" : "Not found");
   }
 
-  if (PRIVATE_ACCESS && !PRIVATE_ALLOW.some((pattern) => pattern.test(pathname))) {
+  if (PRIVATE_ACCESS && !API_SELF_AUTHED.some((pattern) => pattern.test(pathname)) && !PRIVATE_ALLOW.some((pattern) => pattern.test(pathname))) {
     if (!(await readerSignedIn(req))) {
       if (pathname.endsWith(".data")) {
         res.writeHead(401, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "private, no-store" });
@@ -287,7 +307,16 @@ async function handle(req: import("node:http").IncomingMessage, res: import("nod
     return proxyToApi(req, res, { "x-forwarded-for": client, "x-real-ip": client });
   }
 
-  if ((req.method === "GET" || req.method === "HEAD") && pathname.includes(".") && (await serveStatic(pathname, res))) return;
+  if (req.method === "GET" || req.method === "HEAD") {
+    const buildAsset = STATIC_ASSET.test(pathname) || ROOT_FILES.test(pathname);
+    if ((buildAsset || pathname.includes(".")) && (await serveStatic(pathname, res))) return;
+    // An exempt asset that matched no file must not reach SSR: the router resolves a normalized target
+    // of it to a page and renders that page with the internal token.
+    if (buildAsset) {
+      res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "private, no-store" });
+      return res.end("Not found");
+    }
+  }
   withGzip(req, res);
   pageResponse(req, res);
   return ssr(req, res);

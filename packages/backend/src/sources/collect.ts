@@ -221,6 +221,7 @@ export async function enrichDetails(candidates: CollectionCandidate[], source: S
 async function store(sourceId: string, runId: number, candidates: CollectionCandidate[], backfill: string | null) {
   let created = 0;
   let revised = 0;
+  let duplicate = 0;
   for (const c of candidates) {
     const material = { ...c, sourceId, via: "fetch" as const, backfill };
     let res;
@@ -242,10 +243,11 @@ async function store(sourceId: string, runId: number, candidates: CollectionCand
       '{collectionDetail}', ${sql.json({ rules: c.detailRules })}) WHERE id = ${res.articleId} AND source_id = ${sourceId}`;
     if (res.created) created += 1;
     if (res.revised) revised += 1;
+    if (!res.created && !res.revised) duplicate += 1;
     // Extraction first when the source wants full text and none came with the listing, else analysis.
     if (res.created || res.revised || res.processingNeeded) await queueProcessing(res.articleId);
   }
-  return { created, revised };
+  return { created, revised, duplicate };
 }
 
 /**
@@ -358,7 +360,25 @@ export async function collectSource(sourceId: string, opts: { force?: boolean; x
     const { byListing, admits } = admission(source, known, firstImport);
     candidates = candidates.filter(byListing);
     // First import of a new source: bounded, and archived by source time (never "today", never pushed).
-    if (firstImport) candidates = candidates.slice(0, Number(source.config._aihot?.initialBackfillLimit ?? 30));
+    let excludedHistory: CollectionCandidate[] = [];
+    if (firstImport) {
+      const limit = Number(source.config._aihot?.initialBackfillLimit ?? 30);
+      excludedHistory = candidates.slice(limit);
+      candidates = candidates.slice(0, limit);
+      if (excludedHistory.length) {
+        // The history chain stops at the cap: a backlog pointing past the kept items would ingest
+        // older posts while the capped middle range is never read again. The watermark still tracks
+        // the newest post (catch-up); the excluded range is recorded as deliberately left out.
+        delete nextCursor.xBacklog;
+        delete nextCursor.fxBacklog;
+        nextCursor.initialHistoryExcluded = {
+          count: excludedHistory.length,
+          newest: excludedHistory[0]!.identityKey,
+          oldest: excludedHistory.at(-1)!.identityKey,
+          at: new Date().toISOString(),
+        };
+      }
+    }
     const reads = await enrichDetails(candidates, source, known, {
       budget: Number(d?.maxFetches ?? 0), admits,
       after: source.cursor?.detailRules === rules ? source.cursor?.detailAfter : undefined,
@@ -386,6 +406,9 @@ export async function collectSource(sourceId: string, opts: { force?: boolean; x
     if (!d || !Object.keys(nextCursor.detailDatedOut ?? {}).length) delete nextCursor.detailDatedOut;
     const stored = await store(sourceId, run!.id, candidates, firstImport ? "first-import" : null);
     ({ created, revised } = stored);
+    detail = { ...detail, discovered: found, written: created, revised, duplicate: stored.duplicate,
+      excluded: excludedHistory.length,
+      awaitingBackfill: ((nextCursor.xBacklog as unknown[] | undefined)?.length ?? 0) + ((nextCursor.fxBacklog as unknown[] | undefined)?.length ?? 0) };
     for (const id of await fillScheduledPublications(sourceId)) await queueProcessing(id);
 
     if (firstImport) nextCursor.initializedAt = new Date().toISOString();

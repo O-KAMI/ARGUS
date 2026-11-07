@@ -287,7 +287,7 @@ test("a window is read page by page, and an item upstream repeats is stored once
   assert.equal(pass.created, 2, "the repeat was not a second article");
   const [rows] = await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM articles WHERE url = ${publisher("page-a")}`;
   assert.equal(rows!.n, 1);
-  assert.deepEqual(await storeItems([]), { read: 0, stored: 0, created: 0, revised: 0, selected: 0, covers: 0, skipped: 0 });
+  assert.deepEqual(await storeItems([]), { read: 0, stored: 0, created: 0, revised: 0, selected: 0, covers: 0, skipped: 0, failed: 0 });
 });
 
 test("one pass reads all three addresses, keeps what each answered, and stores the window as this site's own", async () => {
@@ -578,11 +578,11 @@ test("with no reading stored, every surface falls back to the ranking this site 
   };
   await saveEndpoints([
     {
-      endpoint: HOT_PATH, etag: null, holdUntil: null, lastStatus: 200, lastCount: 2, lastOkAt: new Date(), lastError: null, policy: null,
+      endpoint: HOT_PATH, etag: null, holdUntil: null, lastStatus: 200, lastCount: 2, lastOkAt: new Date(), lastAttemptAt: new Date(), contentAt: new Date(), fullReadAt: null, lastError: null, policy: null,
       answer: storedHot(twoEntryAnswer),
     },
     {
-      endpoint: HOT_TOPICS_PATH, etag: null, holdUntil: null, lastStatus: 200, lastCount: 0, lastOkAt: new Date(), lastError: null, policy: null, answer: null,
+      endpoint: HOT_TOPICS_PATH, etag: null, holdUntil: null, lastStatus: 200, lastCount: 0, lastOkAt: new Date(), lastAttemptAt: new Date(), contentAt: null, fullReadAt: null, lastError: null, policy: null, answer: null,
     },
   ]);
   invalidateSnapshot();
@@ -653,4 +653,150 @@ test("a ranking whose halves come from different passes is published as the mix 
   const aligned = await mirroredHot(clock("2026-11-01T05:46:00.000Z"));
   assert.equal(aligned?.mirror.mixed, false);
   assert.equal(aligned?.mirror.stale, false);
+});
+
+// 上游只改中文标题、摘要、分类或评分而原文未变：材料不会 created/revised，继承判断和发布投影仍要跟上。
+test("an upstream correction of the inherited editorial copy updates judgement and publication without a new revision", async () => {
+  const id = `edit-${T}`;
+  const first = stored(await storeItem(item(id, "editorial"), null, clock("2026-11-02T00:00:00.000Z")));
+  const before = await counts();
+  const corrected = item(id, "editorial", { title: "更正后的中文标题", summary: "更正后的中文摘要。", category: "paper", score: 91, selected: false, reason: "上游更正" });
+  const again = stored(await storeItem(corrected, null, clock("2026-11-02T00:15:00.000Z")));
+  assert.equal(again.articleId, first.articleId);
+  assert.equal(again.created, false);
+  assert.equal(again.revised, false, "the publisher's own words did not change: no new material revision");
+
+  const judgements = await sql<{ title_zh: string; summary_zh: string; category: string; tags: string[]; score: number; selected: boolean }[]>`
+    SELECT title_zh, summary_zh, category, tags, score, selected FROM analyses WHERE article_id = ${first.articleId}`;
+  assert.equal(judgements.length, 1, "the inherited judgement is corrected in place, not duplicated");
+  assert.equal(judgements[0]!.title_zh, "更正后的中文标题");
+  assert.equal(judgements[0]!.summary_zh, "更正后的中文摘要。");
+  assert.equal(judgements[0]!.category, "paper");
+  assert.deepEqual(judgements[0]!.tags, ["论文/研究"]);
+  assert.equal(judgements[0]!.score, 91);
+  assert.equal(judgements[0]!.selected, false);
+  const [p] = await sql<{ title: string; summary: string; category: string; score: number; selected: boolean; revision: number }[]>`
+    SELECT title, summary, category, score, selected, revision FROM publications WHERE article_id = ${first.articleId}`;
+  assert.equal(p!.title, "更正后的中文标题", "the projection readers see carries the correction in the same transaction");
+  assert.equal(p!.summary, "更正后的中文摘要。");
+  assert.equal(p!.category, "paper");
+  assert.equal(p!.selected, false);
+
+  // 同一输入重放幂等：不再写判断，也不再推投影版本。
+  const replay = stored(await storeItem(corrected, null, clock("2026-11-02T00:30:00.000Z")));
+  assert.equal(replay.articleId, first.articleId);
+  const [after] = await sql<{ n: number; revision: number }[]>`
+    SELECT (SELECT count(*)::int FROM analyses WHERE article_id = ${first.articleId}) AS n,
+      (SELECT revision FROM publications WHERE article_id = ${first.articleId}) AS revision`;
+  assert.equal(after!.n, 1);
+  assert.equal(after!.revision, p!.revision, "a replay of the same correction moves nothing");
+  const totals = await counts();
+  assert.equal(totals.r, before.r, "no model call");
+  assert.equal(totals.d, before.d, "no push");
+});
+
+// 单条事务暂时失败是可重试错误，不是业务拒绝：有未应用项就不确认窗口版本，上游此后一直不变也要能补齐。
+test("a retryable item failure leaves the window unconfirmed, and the next pass refills it", async () => {
+  const page = (source: { name: string }) => ({
+    status: 200, etag: `"retry-window-${T}"`,
+    body: { schemaVersion: 1, items: [item(`retry-${T}`, "retry", { source })], page: { count: 1, hasMore: false, nextCursor: null } },
+  });
+  // \0 让这一条的入库事务在数据库里失败：窗口读完了，但这条没有应用。
+  route = (url) => url.pathname !== "/api/v1/items" ? fixture(url) : page({ name: "bad\u0000name" });
+  const report = await mirrorOnce("schedule", clock("2026-11-02T01:00:00.000Z"), ORIGIN);
+  assert.equal(report.items.failed, 1);
+  assert.equal(report.items.skipped, 0, "a transaction failure is not a permanent business rejection");
+  assert.match(report.problems.join("；"), /不确认窗口版本/);
+  const row = (await readEndpoints([SELECTED_PATH])).get(SELECTED_PATH)!;
+  assert.equal(row.etag, null, "an unapplied item means this version is not confirmed");
+
+  // 上游内容不变（同一 ETag）：因为本站没有确认版本，下一轮仍是无条件读，失败项被补齐。
+  route = (url) => url.pathname !== "/api/v1/items" ? fixture(url) : page({ name: "甲媒体" });
+  const next = await mirrorOnce("schedule", clock("2026-11-02T01:15:00.000Z"), ORIGIN);
+  assert.equal(next.items.failed, 0);
+  assert.equal(next.items.stored, 1);
+  const [a] = await sql<{ id: string }[]>`SELECT id FROM articles WHERE url = ${publisher("retry")}`;
+  assert.ok(a, "the failed item was applied on the next pass even though upstream never changed");
+  assert.equal((await readEndpoints([SELECTED_PATH])).get(SELECTED_PATH)!.etag, `"retry-window-${T}"`, "now the version is confirmed");
+  route = fixture;
+});
+
+// 上游 v1 的 ETag 按当页生成：第一页 304 不能无限期挡住第二页的更正，定期无条件全量对账兜底。
+test("page one's 304 does not hide a later page's correction past the reconciliation interval", async () => {
+  let summary = "第一版摘要。";
+  route = (url) => {
+    if (url.pathname !== "/api/v1/items") return fixture(url);
+    const cursor = url.searchParams.get("cursor");
+    return cursor
+      ? { status: 200, body: { schemaVersion: 1, items: [item(`m2-${T}`, "multi-b", { summary })], page: { count: 1, hasMore: false, nextCursor: null } } }
+      : { status: 200, etag: `"multi-${T}"`, body: { schemaVersion: 1, items: [item(`m1-${T}`, "multi-a")], page: { count: 1, hasMore: true, nextCursor: "cur2" } } };
+  };
+  const first = await mirrorOnce("schedule", clock("2026-11-02T02:00:00.000Z"), ORIGIN);
+  assert.equal(first.pages, 2);
+  assert.equal(first.items.stored, 2);
+
+  // 间隔之内：第一页未变即 304，第二页的更正这一轮还读不到（条件请求的既定语义）。
+  summary = "更正后的第二页摘要。";
+  const inside = await mirrorOnce("schedule", clock("2026-11-02T02:15:00.000Z"), ORIGIN);
+  assert.equal(inside.unchanged, true);
+
+  // 超过对账间隔：无条件完整重读，第二页的更正必须落库。
+  const late = await mirrorOnce("schedule", clock("2026-11-02T08:01:00.000Z"), ORIGIN);
+  assert.equal(late.unchanged, false);
+  assert.equal(late.pages, 2);
+  const [j] = await sql<{ summary_zh: string }[]>`
+    SELECT n.summary_zh FROM analyses n JOIN articles a ON a.id = n.article_id WHERE a.url = ${publisher("multi-b")}`;
+  assert.equal(j!.summary_zh, "更正后的第二页摘要。", "the later page's correction is applied, not lost to page one's 304");
+  route = fixture;
+});
+
+// 请求时间、最近有效验证、内容生成/应用时间是三个钟：畸形 200 只推进请求时间，304 确认未变但不冒充新内容。
+test("a malformed 200 does not refresh validity, and a 304 is not new content", async () => {
+  const hotBefore = (await readEndpoints([HOT_PATH])).get(HOT_PATH)!;
+  const topicsBefore = (await readEndpoints([HOT_TOPICS_PATH])).get(HOT_TOPICS_PATH)!;
+  route = (url) => url.pathname === HOT_PATH ? { status: 200, body: { entries: [] }, etag: `"bad-hot-${T}"` } : fixture(url);
+  const at = clock("2026-11-02T09:00:00.000Z");
+  await mirrorOnce("schedule", at, ORIGIN);
+  const hotAfter = (await readEndpoints([HOT_PATH])).get(HOT_PATH)!;
+  assert.equal(hotAfter.lastAttemptAt!.toISOString(), at.toISOString(), "the request happened");
+  assert.equal(hotAfter.lastOkAt!.getTime(), hotBefore.lastOkAt!.getTime(), "a boardless 200 is not a valid verification");
+  assert.equal(hotAfter.contentAt!.getTime(), hotBefore.contentAt!.getTime(), "nor is it new content");
+  assert.equal(hotAfter.etag, null);
+
+  route = fixture;
+  await mirrorOnce("schedule", clock("2026-11-02T09:15:00.000Z"), ORIGIN);
+  const topicsAfter = (await readEndpoints([HOT_TOPICS_PATH])).get(HOT_TOPICS_PATH)!;
+  assert.equal(topicsAfter.lastStatus, 304);
+  assert.equal(topicsAfter.lastOkAt!.toISOString(), "2026-11-02T09:15:00.000Z", "a 304 confirms the reading is still valid");
+  assert.equal(topicsAfter.contentAt!.getTime(), topicsBefore.contentAt!.getTime(), "but it did not generate content");
+});
+
+// 完整窗口才对账成员：仍在窗口年龄内却缺席的是上游明确撤选；自然滑出仍走本地滚动留存；partial 不撤稿。
+test("only a complete window withdraws by absence, and natural expiry stays a separate path", async () => {
+  const withdrawn = stored(await storeItem(item(`wd-${T}`, "withdrawn"), null, clock("2026-11-02T09:30:00.000Z")));
+  const expired = stored(await storeItem(item(`exp-${T}`, "expired", { publishedAt: "2026-10-20T00:00:00.000Z" }), null, clock("2026-11-02T09:30:00.000Z")));
+  const exists = async (articleId: string) => (await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM articles WHERE id = ${articleId}`)[0]!.n === 1;
+
+  // 一个读不到末尾的窗口（max-pages）：两条都不在已读部分里，但 partial 绝不按缺席撤稿。
+  route = (url) => url.pathname !== "/api/v1/items" ? fixture(url) : {
+    status: 200,
+    body: { schemaVersion: 1, items: [item(`keep-${T}`, "keep")], page: { count: 1, hasMore: true, nextCursor: "again" } },
+  };
+  const partial = await mirrorOnce("schedule", clock("2026-11-02T10:00:00.000Z"), ORIGIN);
+  assert.equal(partial.truncated, true);
+  assert.equal(partial.withdrawn, 0);
+  assert.equal(await exists(withdrawn.articleId), true, "a partial window never withdraws by absence");
+  assert.equal(await exists(expired.articleId), true);
+
+  // 完整窗口仍不含它们：窗口年龄内的是明确撤选，撤下；更老的是自然滑出，留给滚动留存。
+  route = (url) => url.pathname !== "/api/v1/items" ? fixture(url) : {
+    status: 200, etag: `"wd-window-${T}"`,
+    body: { schemaVersion: 1, items: [item(`keep-${T}`, "keep")], page: { count: 1, hasMore: false, nextCursor: null } },
+  };
+  const complete = await mirrorOnce("schedule", clock("2026-11-02T10:15:00.000Z"), ORIGIN);
+  assert.equal(complete.truncated, false);
+  assert.ok(complete.withdrawn >= 1);
+  assert.equal(await exists(withdrawn.articleId), false, "an item upstream explicitly dropped inside its window age is withdrawn");
+  assert.equal(await exists(expired.articleId), true, "an item past the window age expires by the local retention rule, not by absence");
+  route = fixture;
 });

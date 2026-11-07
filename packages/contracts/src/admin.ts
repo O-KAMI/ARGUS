@@ -92,6 +92,7 @@ export interface AdminSourceRow {
   next_fetch_at: Timestamp | null;
   items_7d: number;
   selected_30d: number;
+  latest_item_at: Timestamp | null;
 }
 
 export interface AdminSources {
@@ -308,6 +309,18 @@ export interface AdminRuns {
   ingest: Array<{ client: string; kind: string; status: string; error: string | null; summary: unknown; created_at: Timestamp }>;
   /** Each module's part of the page, under its name (what its server module's admin.runs returns). */
   modules: Record<string, unknown>;
+  reports: {
+    startDaily: string | null;
+    startSource: "setting" | "first-issue" | "none";
+    days: Array<{ key: string; status: "published" | "quiet" | "upstream" | "missing"; entries: number | null; reason: string | null; window: { start: string; end: string } | null }>;
+    weekly: { covered: string[]; missing: string[] };
+    monthly: { covered: string[]; missing: string[] };
+  };
+  backup: {
+    configured: boolean;
+    last: { at: string; uploaded: boolean; filesError?: string } | null;
+    restoreVerified: { at: string; note: string | null } | null;
+  };
 }
 
 // Settings

@@ -28,11 +28,13 @@ export async function loader({ request }: Route.LoaderArgs) {
   const filters = readFilters(url.searchParams);
   const upstream = new Headers();
   const editorial = !hasFeedFilters(filters);
+  // The timeline is the page's reading task: hot and topics are auxiliary, and their failure degrades
+  // only their own boards (the board shows the error state), never the whole page.
   const [data, hot, topics] = await Promise.all([
     // The board already carries the day's lead; a shorter first page keeps the document light.
     loadOr404<TimelineResponse>(listPath("/api/site/timeline", { ...filterParams(filters), ...(editorial ? { limit: 12 } : {}) }), { responseHeaders: upstream, signal: request.signal }),
-    editorial ? loadOr404<HotResponse>("/api/site/hot", { signal: request.signal }) : Promise.resolve(null),
-    editorial ? loadOr404<TopicsResponse>("/api/site/topics", { signal: request.signal }) : Promise.resolve(null),
+    editorial ? loadOr404<HotResponse>("/api/site/hot", { signal: request.signal }).catch(() => null) : Promise.resolve(null),
+    editorial ? loadOr404<TopicsResponse>("/api/site/topics", { signal: request.signal }).catch(() => null) : Promise.resolve(null),
   ]);
   return cachedPage(60, { data, hot, topics, filters }, upstream);
 }
@@ -55,7 +57,7 @@ export default function Home() {
     <div className="pb-6">
       <FeedBar base="/" filters={filters} />
       <ActiveFilters base="/" filters={filters} />
-      {showHero && hot && topics ? (
+      {showHero ? (
         <>
           <InkHero />
           <HomeBoard data={data} hot={hot} topics={topics} />
@@ -71,7 +73,14 @@ export default function Home() {
       )}
       {!showHero && data.hot && inNav("/hot") && <HotTopics entries={data.hot} />}
       <section aria-label="精选时间线" className={showHero ? "mt-8" : ""}>
-        {showHero && <h2 className="mb-2 hidden font-serif text-[21px] font-semibold text-ink lg:block">最新时间线</h2>}
+        {/* The clean home keeps the three filter axes beside the timeline's title, so a reader can narrow
+            the feed without leaving for 资源库 first; choosing one lands on the filtered branch above. */}
+        {showHero && (
+          <div className="mb-2 hidden flex-wrap items-center justify-between gap-3 lg:flex">
+            <h2 className="font-serif text-[21px] font-semibold text-ink">最新时间线</h2>
+            <FilterMenus base="/" filters={filters} className="min-w-0 justify-end" />
+          </div>
+        )}
         <Timeline initial={data} filters={data.filters} featuredKeys={featuredKeys} />
       </section>
     </div>

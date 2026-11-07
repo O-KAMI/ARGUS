@@ -13,6 +13,7 @@ import { labelSelection, listLabeling } from "@aihot/backend/admin/labeling";
 import { detachFromFact, mergeStories } from "@aihot/backend/events/corrections";
 import { banFeedbackEmail, banSource, eraseFeedback, feedbackScreenshot, listFeedback, unbanSource, updateFeedback } from "@aihot/backend/admin/feedback";
 import { requeueFailedArticles, runsOverview } from "@aihot/backend/admin/runs";
+import { recordRestoreVerified } from "@aihot/backend/reports/status";
 import { resolveDelivery } from "@aihot/backend/notify/deliver";
 import { releaseReceipt } from "@aihot/backend/operations/recover";
 import { replaceContactQr, setTargetEnabled, settingsOverview, updateBudget } from "@aihot/backend/admin/settings";
@@ -92,6 +93,8 @@ export function registerAdmin(app: FastifyInstance) {
 
   // Runs
   app.get("/api/admin/runs", adminHandler(async () => runsOverview()));
+  app.post("/api/admin/backup/restore-verified", adminHandler(async (req, _reply, admin) =>
+    recordRestoreVerified(String((body(req) as { note?: unknown }).note ?? ""), actorOf(admin))));
   app.post("/api/admin/receipts/:id/release", adminHandler(async (req, reply, admin) => orNotFound(req, reply, await releaseReceipt(Number(param(req, "id")), body(req) as never, actorOf(admin)))));
   app.post("/api/admin/deliveries/:id/resolve", adminHandler(async (req, reply, admin) => orNotFound(req, reply, await resolveDelivery(Number(param(req, "id")), body(req) as never, actorOf(admin)))));
   app.post("/api/admin/processing/requeue", adminHandler(async (req, _reply, admin) => requeueFailedArticles(body(req) as never, actorOf(admin))));

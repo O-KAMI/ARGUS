@@ -102,6 +102,11 @@ export interface RankingResponse {
   fetchedAt: string | null;
   /** True while the newest run of the board's source failed, so the board shows the previous result. */
   stale: boolean;
+  /**
+   * What the served version covers: `partial` is a cold-start candidate list with no complete snapshot
+   * yet; null while no attempt has recorded anything.
+   */
+  coverage: "complete" | "partial" | "empty" | null;
 }
 
 export interface CategoryCount {
@@ -144,6 +149,8 @@ export interface RepositoryDetail {
 /** What the admin's status endpoint answers. */
 export interface CollectionStatus {
   tokenConfigured: boolean;
+  /** The engine's collection valve; closed means refresh answers disabled without any request. */
+  collectEnabled: boolean;
   taxonomyVersion: string;
   refreshCron: string;
   repositories: number;

@@ -225,7 +225,7 @@ async function evaluate() {
         const threshold = trackThreshold(track, input.source.tier);
         if (threshold === null) return outcome("pass");
 
-        const key = scoreCacheKey(track, buildScoreInput(input));
+        const key = scoreCacheKey(track, buildScoreInput(input, track));
         let request = scoreRequests.get(key);
         if (!request) {
           const sharedReceiptIds: number[] = [];
@@ -250,14 +250,15 @@ async function evaluate() {
       const of = results.filter((x) => x.track === track);
       const summary = selectionMetrics(of.map((x) => ({ gold: x.r.gold.decision, decision: decide(x) })));
       // Threshold sweep keeps valid-output metrics, while coverage and completeAcc charge decisive failures.
-      const cases = of.map((x) => ({ gold: x.r.gold.decision, available: x.error === null, passed: x.relevance === "pass", scores: x.scores }));
+      // Each candidate threshold replays the production stopping rule against the stored raw levels.
+      const cases = of.map((x) => ({ gold: x.r.gold.decision, track, available: x.error === null, passed: x.relevance === "pass", scores: x.scores }));
       const [from, to] = goldSweep(track);
       const sweep = [];
       for (let t = from; t <= to; t += 2) sweep.push(selectionThresholdMetrics(cases, t));
       perTrack[track] = { n: of.length, promptVersion: selectionPromptVersion(track), summary, sweep, mistakes: mistakesOf(of) };
       console.log(`[${track}] ${model} ${JSON.stringify({ ...summary, promptVersion: selectionPromptVersion(track) })}`);
       console.log(sweep.map((s) =>
-        `  [${track}] t=${s.t} acc=${s.acc} completeAcc=${s.completeAcc} coverage=${s.coverage} P=${s.P} R=${s.R} F1=${s.F1} sel=${s.sel} fp=${s.fp} fn=${s.fn}`
+        `  [${track}] t=${s.t} acc=${s.acc} completeAcc=${s.completeAcc} coverage=${s.coverage} P=${s.P} R=${s.R} F1=${s.F1} sel=${s.sel} fp=${s.fp} fn=${s.fn} gap=${s.gap} calls100=${s.calls100}`
       ).join("\n"));
     }
     const usage = await usageFor(results.flatMap((x) => x.receiptIds));

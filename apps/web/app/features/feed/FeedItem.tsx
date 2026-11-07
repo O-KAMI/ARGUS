@@ -8,6 +8,7 @@ import type { GroupInfo, FeedItemSummary, TimelineFilters } from "@aihot/contrac
 import { CATEGORY_LABELS, isMirrored } from "@aihot/contracts/taxonomy";
 import { ITEM_COPY } from "@aihot/site";
 import { SameEventBadge, SelectedBadge } from "../../components/ui/Badge";
+import { CoverImage } from "../../components/ui/CoverImage";
 import { ScoreLabel } from "../../components/ui/Score";
 import { beijingTime } from "@aihot/contracts/time";
 import { MediaThumbs, OriginalLink, SourceLine, StarButton, readTone } from "./parts";
@@ -82,7 +83,8 @@ export const FeedItem = memo(function FeedItem({ item, group, filters, read = fa
             {item.summary && <p className="mt-1 line-clamp-2 text-[14.5px] leading-[1.7] text-ink-3 lg:mt-2 lg:line-clamp-3 lg:text-[15px] lg:leading-[1.75]">{item.summary}</p>}
           </div>
           {item.cover && (
-            <img
+            <CoverImage
+              fallback={<div className="grid aspect-[16/10] w-[104px] shrink-0 place-items-center rounded-control border border-line-soft bg-bg-sunk font-serif text-[11px] tracking-[0.1em] text-ink-4 sm:w-[136px] lg:w-[168px]">ARGUS</div>}
               src={item.cover.poster ?? item.cover.url}
               srcSet={item.cover.srcSet}
               sizes="(min-width: 961px) 168px, 104px"

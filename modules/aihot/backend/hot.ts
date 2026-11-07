@@ -34,9 +34,10 @@ interface Snapshot {
   hot: StoredHot | null;
   topics: StoredTopics | null;
   /**
-   * When each of the two readings in use was last read whole, as the rows state it. A ranking whose two
-   * halves came from different passes is a mix of two moments, and the reader is told rather than shown a
-   * single tidy time.
+   * When each of the two readings in use was last verified valid (a whole 200 or a confirming 304), as the
+   * rows state it. A malformed 200 never moves this time, so an old snapshot is never shown as "just read".
+   * A ranking whose two halves came from different passes is a mix of two moments, and the reader is told
+   * rather than shown a single tidy time.
    */
   readAt: { hot: number | null; topics: number | null };
 }

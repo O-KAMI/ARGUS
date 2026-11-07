@@ -175,3 +175,34 @@ test("a weekly that froze no summaries shows the articles' public summaries", as
   await publishArticle(articleId);
   assert.equal((await loadReport("weekly", WEEK))?.sections[0]?.items[0]?.firstParty, false);
 });
+
+// 审计 2026-11-04 四.9：补刊循环从最早已有刊开始，首刊之前的缺口永远不会被发现。出刊账把启刊日以来的
+// 每一天都给出状态——已发布、无入选、上游未就绪、缺期及其原因与窗口——周月报列出覆盖与缺期。
+test("the publication ledger explains every day from the start date", async () => {
+  const { reportsStatus } = await import("@aihot/backend/reports/status");
+  const issue = "2027-03-06"; // far from the real clock: other fixtures publish at "now"
+  const issueStart = beijingAt(issue, "00:00");
+  await sql`INSERT INTO reports (kind, key, window_start, window_end, content, generated_at, model, origin)
+    VALUES ('daily', ${issue}, ${new Date(issueStart.getTime() - 86400000)}, ${issueStart},
+            ${sql.json({ metrics: { totalEvents: 2 } } as never)}, now(), null, 'manual')`;
+  // The next day's window holds a judged report but no issue was ever written: a missing day with a reason.
+  await reportItem("ledger-judged", new Date(issueStart.getTime() + 3600_000));
+  const now = new Date("2027-03-08T03:00:00Z"); // Beijing Monday 11:00: the week of the first issue is due
+  const status = await reportsStatus(now);
+  assert.equal(status.startSource, "first-issue");
+  const byKey = new Map(status.days.map((d) => [d.key, d]));
+  assert.equal(byKey.get(issue)?.status, "published");
+  assert.equal(byKey.get("2027-03-07")?.status, "missing", "a judged window with no issue is a gap, not silence");
+  assert.match(byKey.get("2027-03-07")?.reason ?? "", /worker|失败/);
+  assert.ok(byKey.get("2027-03-07")?.window, "the missing day names its window");
+  assert.equal(byKey.get("2027-03-08")?.status, "upstream", `a window nothing was judged in is upstream, not a failure; got ${JSON.stringify(byKey.get("2027-03-08"))} `);
+  assert.ok(status.weekly.missing.includes("2027-W09"), "the due week without an issue is named");
+  assert.ok(!status.weekly.missing.includes("2027-W08"), "a week that ended before the first daily is not a gap");
+  // A start date before the first issue turns the earlier days into explained statuses, not blind gaps.
+  await sql`INSERT INTO settings (key, value, updated_by) VALUES ('reports.start_daily', ${sql.json("2027-03-05" as never)}, 'test')
+            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`;
+  const withStart = await reportsStatus(now);
+  assert.equal(withStart.startSource, "setting");
+  assert.equal(withStart.days.find((d) => d.key === "2027-03-05")?.status, "upstream", "nothing judged in that window: upstream not ready");
+  await sql`DELETE FROM settings WHERE key = 'reports.start_daily'`;
+});

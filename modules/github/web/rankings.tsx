@@ -2,7 +2,7 @@
 // weekly boards keep GitHub's own order and the star boards keep stars descending, so the page never offers
 // a sort control that could break either. Styling is the site's own tokens (app.css), nothing hard-coded.
 import { Link, useLoaderData, useNavigate, useNavigation, useSearchParams } from "react-router";
-import { beijingTime } from "@aihot/contracts/time";
+import { beijingStamp } from "@aihot/contracts/time";
 import { cachedPage, loadOr404, pageHeaders } from "@aihot/web/lib/api.server";
 import { pageMeta } from "@aihot/web/lib/seo";
 import { PillTabs } from "@aihot/web/components/ui/Tabs";
@@ -31,8 +31,10 @@ export async function loader({ request }: { request: Request }) {
 
 interface LoaderData { data: RankingResponse; expiresAt: number }
 
-export function meta({ data }: { data?: LoaderData }) {
-  const board = data?.data.board ?? "all_weekly";
+// MetaArgs carries the loader's result as `loaderData`; `data` is always undefined here, which used to
+// title every board "全站周榜" no matter which one the page showed.
+export function meta({ loaderData }: { loaderData?: LoaderData }) {
+  const board = loaderData?.data.board ?? "all_weekly";
   const copy = BOARD_COPY[board];
   return pageMeta({
     title: `${copy.label} · GitHub 开源趋势`,
@@ -73,7 +75,7 @@ function RepoRow({ item, weekly, ai }: { item: RankingRepository; weekly: boolea
           <span className="num">★ {stars(item.stargazersCount)}</span>
           {item.forksCount !== null && <span className="num">Fork {stars(item.forksCount)}</span>}
           {item.language && <span>{item.language}</span>}
-          {item.updatedAt && <span>更新于 {beijingTime(item.updatedAt)}</span>}
+          {item.updatedAt && <span>更新于 {beijingStamp(item.updatedAt)}</span>}
           {ai && item.aiPrimaryCategory && (
             <span className="rounded-mark bg-accent-soft px-1.5 py-0.5 text-[11px] text-accent-ink">{AI_CATEGORY_LABELS[item.aiPrimaryCategory]}</span>
           )}
@@ -131,9 +133,15 @@ export default function GithubRankingsPage() {
 
       <p className="mt-3 text-[12.5px] leading-[1.6] text-ink-4">{copy.basis}全站总榜与 AI 总榜均已排除 Fork 仓库。</p>
 
+      {data.coverage === "partial" && (
+        <p className="mt-2 rounded-control bg-bg-muted px-3 py-2 text-[12.5px] leading-[1.6] text-ink-3">
+          部分结果：这个榜单还没有完整快照，当前列出的是已观测到的候选仓库。
+        </p>
+      )}
+
       {data.stale && (
         <p className="mt-2 rounded-control bg-amber-soft px-3 py-2 text-[12.5px] leading-[1.6] text-amber-ink">
-          数据更新失败，当前为上次成功结果{data.fetchedAt ? `（${beijingTime(data.fetchedAt)}）` : ""}。
+          数据更新失败，当前为上次成功结果{data.fetchedAt ? `（${beijingStamp(data.fetchedAt)}）` : ""}。
         </p>
       )}
 
@@ -195,7 +203,7 @@ export default function GithubRankingsPage() {
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[12px] text-ink-4">
         <span>
           共 <span className="num">{data.total}</span> 个项目
-          {data.fetchedAt && <> · 数据更新于 <span className="num">{beijingTime(data.fetchedAt)}</span></>}
+          {data.fetchedAt && <> · 数据更新于 <span className="num">{beijingStamp(data.fetchedAt)}</span></>}
         </span>
         {(data.filters.language || data.filters.category || data.filters.keyword) && (
           <Link to={withParams({ language: null, category: null, keyword: null })} className="text-accent hover:underline">清除筛选</Link>

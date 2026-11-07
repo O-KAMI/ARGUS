@@ -23,6 +23,7 @@ import { completeReceipt, failedReceiptId, failureKind } from "../providers/rece
 import { collapseWhitespace } from "../lib/text.ts";
 import { modelFor, modelRoute, modelSupportsVision } from "./models.ts";
 import { buildMaterial, firstImagePart, loadAnalyzeInput, type AnalyzeInputArticle } from "./input.ts";
+import { visionEvidence } from "./vision.ts";
 import { pageFetchable } from "../content/extract.ts";
 import { shutdownSignal } from "../jobs/queue.ts";
 import {
@@ -141,9 +142,11 @@ export function scoreInputTime(at: Date): string {
 
 /**
  * The score input: no source facts (the prompt forbids guessing them), the publication time, the
- * original title (items are scored before any Chinese copy exists) and the whole body.
+ * original title (items are scored before any Chinese copy exists) and the whole body. The output
+ * instruction follows the track's own contract: the learning prompt answers `level,kinds`, the news
+ * prompt `attentionScore` — asking one track for the other's field contradicts its system wording.
  */
-export function buildScoreInput(a: AnalyzeInputArticle): string {
+export function buildScoreInput(a: AnalyzeInputArticle, track: Track = "news"): string {
   let body: string;
   if (a.xPost) {
     const quoted = a.xPost.quoted?.text ? `\n\n[引用 ${a.xPost.quoted.handle ? `@${a.xPost.quoted.handle}` : "原推文"}]：${a.xPost.quoted.text}` : "";
@@ -154,7 +157,9 @@ export function buildScoreInput(a: AnalyzeInputArticle): string {
   if (!body) body = a.title;
   const at = a.publishedAt;
   return [
-    "请按系统规则评估以下单篇材料所代表的事件。只输出 attentionScore。",
+    track === "learning"
+      ? "请按系统规则评估以下单篇材料的学习价值。只输出 level 与 kinds（level 取 hit/edge/miss）。"
+      : "请按系统规则评估以下单篇材料所代表的事件。只输出 attentionScore。",
     `【发布时间（北京时间）】\n${at ? a.publicationTime === undefined || a.publicationTime?.includes("T") ? scoreInputTime(at) : describePublicationTime(at, a.publicationTime) : "未知（收录时间不代表发布时间）"}`,
     `【标题】\n${a.title.trim()}`,
     `【完整正文】\n${body.length > MAX_BODY_CHARS ? body.slice(0, MAX_BODY_CHARS) : body}`,
@@ -285,7 +290,9 @@ const checkAnalysisRunning = () => shutdownSignal.signal.throwIfAborted();
 const subjectOf = (a: AnalyzeInputArticle) => `article:${a.id}@${a.revision}`;
 const tagged = (attemptTag: string | undefined, step: string) => [attemptTag, step].filter(Boolean).join(":") || undefined;
 
-async function runPrefilter(a: AnalyzeInputArticle, opts: StepOpts): Promise<NonNullable<AnalysisRun["prefilter"]>> {
+async function runPrefilter(a: AnalyzeInputArticle, opts: StepOpts, onReceipt?: ReceiptObserver): Promise<NonNullable<AnalysisRun["prefilter"]>> {
+  // Shadow-switched: dormant by default, and only the learning track's short picture posts ever read one.
+  const evidence = await visionEvidence(a, onReceipt);
   const model = await modelFor("prefilter");
   checkAnalysisRunning();
   const res = await chatJson({
@@ -294,7 +301,7 @@ async function runPrefilter(a: AnalyzeInputArticle, opts: StepOpts): Promise<Non
     subject: subjectOf(a),
     promptVersion: PROMPT_VERSIONS.prefilter,
     system: PREFILTER_SYSTEM,
-    user: prefilterUser(a),
+    user: prefilterUser(a, { visualEvidence: evidence?.state === "ok" ? evidence.text : null }),
     schema: PrefilterSchema,
     temperature: 0,
     maxTokens: 512,
@@ -312,7 +319,7 @@ export async function runSelectionPrefilter(
   onReceipt?: ReceiptObserver,
 ): Promise<NonNullable<AnalysisRun["prefilter"]>> {
   try {
-    const result = await runPrefilter(a, opts);
+    const result = await runPrefilter(a, opts, onReceipt);
     onReceipt?.(result.receiptId);
     return result;
   } catch (error) {
@@ -331,7 +338,7 @@ async function runScores(
 ): Promise<NonNullable<AnalysisRun["scores"]>> {
   const model = opts.scoreModel ?? (await modelFor("score"));
   const call = scoreCall(model);
-  const input = buildScoreInput(a);
+  const input = buildScoreInput(a, track);
   const params = {
     model, purpose: "score_article" as const, subject: subjectOf(a), system: scoreSystem(track), user: input,
     promptVersion: track === "learning" ? PROMPT_VERSIONS.scoreLearning : PROMPT_VERSIONS.score,

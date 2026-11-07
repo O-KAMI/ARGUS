@@ -17,7 +17,7 @@ function TopLink({ item }: { item: NavItem }) {
     <IntentLink
       to={item.to}
       aria-current={active ? "page" : undefined}
-      className={`relative flex h-[84px] items-center whitespace-nowrap text-[14px] transition-colors duration-150 after:absolute after:inset-x-0 after:bottom-[17px] after:mx-auto after:h-px after:bg-ink after:transition-opacity ${active ? "font-semibold text-ink after:opacity-100" : "text-ink-3 after:opacity-0 hover:text-ink"}`}
+      className={`relative flex h-full items-center whitespace-nowrap text-[14px] transition-colors duration-150 after:absolute after:inset-x-0 after:bottom-[17px] after:mx-auto after:h-px after:bg-ink after:transition-opacity ${active ? "font-semibold text-ink after:opacity-100" : "text-ink-3 after:opacity-0 hover:text-ink"}`}
     >
       {LABELS[item.to] ?? item.label}
     </IntentLink>
@@ -31,7 +31,8 @@ export function TopHeader({ changelogVersion }: { changelogVersion: string | nul
   const dot = useChangelogDot(changelogVersion);
   return (
     <header className="sticky top-0 z-40 hidden border-b border-line-soft bg-bg/95 backdrop-blur-xl lg:block">
-      <div className="mx-auto flex h-[84px] max-w-[1360px] items-center gap-5 px-7 xl:gap-8">
+      {/* The body's height comes from --bar-h (minus the 1px border), the same token sticky offsets read. */}
+      <div className="mx-auto flex h-[calc(var(--bar-h)-1px)] max-w-[1360px] items-center gap-5 px-7 xl:gap-8">
         <Link to="/" aria-label={`${SITE.name} 首页`} className="shrink-0 text-ink">
           <span className="hidden xl:block"><InkLockup height={46} /></span>
           <span className="xl:hidden"><InkLockup height={36} /></span>
@@ -39,7 +40,7 @@ export function TopHeader({ changelogVersion }: { changelogVersion: string | nul
         <nav aria-label="主导航" className="flex min-w-0 flex-1 items-center justify-center gap-5 xl:gap-8">
           {primary.map((item) => <TopLink key={item.to} item={item} />)}
           <details className="group relative">
-            <summary className="flex h-[84px] cursor-pointer list-none items-center gap-1 text-[14px] text-ink-3 transition-colors hover:text-ink [&::-webkit-details-marker]:hidden">
+            <summary className="flex h-full cursor-pointer list-none items-center gap-1 text-[14px] text-ink-3 transition-colors hover:text-ink [&::-webkit-details-marker]:hidden">
               更多 <IconChevronDown size={13} className="transition-transform group-open:rotate-180" />
             </summary>
             <div className="absolute left-1/2 top-[70px] w-44 -translate-x-1/2 rounded-card border border-line bg-surface p-1.5 shadow-pop">
