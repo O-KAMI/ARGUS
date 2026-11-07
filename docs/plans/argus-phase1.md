@@ -130,7 +130,7 @@
 
 Playwright + 系统 Chrome，桌面 1440×1000、平板 900×1000、手机 390×844：
 
-- 截图：`../../artifacts/screenshots/{desktop,tablet,mobile}-{login,home,topics,about}.png`
+- 截图：当时存于 `artifacts/screenshots/`（2026-11-07 目录整理时按主人裁定删除，属可再生验收产物；本段文字即验收记录）
 - 检查：首页品牌首屏、登录页、主题目录、关于页在三种宽度下布局正常；无页面级脚本错误（登录前有预期内的 401 资源请求）。
 - 浅色与深色主题均按设计令牌渲染；浅色为默认验收视觉。
 
