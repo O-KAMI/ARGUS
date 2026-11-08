@@ -93,13 +93,16 @@ test('SSR list and visited query variants return offline without another read',a
     await context.setOffline(false);
     await page.getByRole('button',{name:/^筛选/}).click();
     await page.getByRole('link',{name:'Agent / Skills',exact:true}).click();
-    await expect(page.getByRole('link',{name:'Agent / Skills',exact:true})).toBeVisible();
+    // A pick closes the sheet before its read completes, and the router pushes history only when the
+    // navigation commits. Waiting on the sheet's fade-out instead of the address lets a slow read be
+    // interrupted by the next pick: the first variant never becomes a history entry to return to.
+    await expect(page).toHaveURL(origin+'/?field=Agent');
     await page.getByRole('button',{name:/^筛选/}).click();
     await page.getByRole('link',{name:'推理',exact:true}).click();
-    await expect(page.getByRole('link',{name:'推理',exact:true})).toBeVisible();
+    await expect(page).toHaveURL(origin+'/?field='+encodeURIComponent('推理'));
     await context.setOffline(true);
     await page.goBack();
-    await expect(page.getByRole('link',{name:'Agent / Skills',exact:true})).toBeVisible({timeout:1500});
+    await expect(page).toHaveURL(origin+'/?field=Agent',{timeout:1500});
     await expect(page.locator('link[rel=canonical]')).toHaveAttribute('href',origin+'/?field=Agent');
   }finally{await context.close();}
 });

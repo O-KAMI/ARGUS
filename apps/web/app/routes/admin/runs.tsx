@@ -131,8 +131,8 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
         <Card title="备份" pad={false}>
           <ul className="divide-y divide-line-soft text-[13px]">
             <li className="flex items-center justify-between px-4 py-2.5">
-              <span className="text-ink-3">对象存储</span>
-              <Badge tone={r.backup.configured ? "ok" : "muted"}>{r.backup.configured ? "已配置" : "未配置"}</Badge>
+              <span className="text-ink-3">存放位置</span>
+              <Badge tone="ok">{r.backup.configured ? "本地 + 对象存储" : "仅本地"}</Badge>
             </li>
             <li className="flex items-center justify-between px-4 py-2.5">
               <span className="text-ink-3">最近成功</span>
@@ -148,7 +148,7 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
             </li>
           </ul>
           <p className="px-4 py-3 text-[12.5px] leading-[1.7] text-ink-3">
-            个人站目标：每日一份、可容忍丢失不超过 24 小时；每月在隔离库恢复一次，打开一条报道和一个附件，然后回来记录。未配置对象存储时不会排定自动备份。
+            个人站目标：每日一份、可容忍丢失不超过 24 小时；每月在隔离库恢复一次，打开一条报道和一个附件，然后回来记录。每天 04:10 自动备份到数据目录，只保留最新一份，旧的自动删除；配置对象存储时另传一份异地副本。
           </p>
         </Card>
       </div>

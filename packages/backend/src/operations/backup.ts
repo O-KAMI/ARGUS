@@ -1,6 +1,7 @@
-// Database and file backups: a verified custom-format dump plus the uploaded files, sent
-// to the existing object store (Tencent COS through its S3-compatible API, AWS Signature V4) under
-// daily/ (Sundays also weekly/, the 1st also monthly/). A few local copies are kept.
+// Database and file backups: a verified custom-format dump plus the uploaded files. The local pair in
+// backups/ is the backup itself — only the newest one is kept. When an object store is configured
+// (Tencent COS through its S3-compatible API, AWS Signature V4) the same pair also goes to daily/
+// (Sundays also weekly/, the 1st also monthly/) as an off-site copy.
 import { execFile } from "node:child_process";
 import { createHash, createHmac } from "node:crypto";
 import { createReadStream } from "node:fs";
@@ -13,7 +14,7 @@ import { sql } from "../db.ts";
 import { screenshotsForwarded } from "./feedback.ts";
 
 const run = promisify(execFile);
-const KEEP_LOCAL = 3;
+const KEEP_LOCAL = 1;
 
 interface Store {
   secretId: string;
@@ -23,7 +24,7 @@ interface Store {
   endpoint: string;
 }
 
-/** Backups run where the object store is configured (production); development never uploads. */
+/** Whether an off-site copy is configured; the local backup runs and counts either way. */
 export function backupConfigured(): boolean {
   return store() !== null;
 }
@@ -135,23 +136,28 @@ export async function runBackup(now = new Date()) {
   for (const file of filesError ? [dump] : [dump, files]) {
     const size = (await stat(file)).size;
     const sha = await fileSha256(file);
+    if (!s) {
+      out.push({ key: `local-only:${path.basename(file)}`, bytes: size, sha256: sha });
+      continue;
+    }
     for (const p of prefixes) {
       // One prefix per retention class (daily/, weekly/, monthly/): a store's lifecycle rules can expire
       // each on its own schedule.
       const key = `${p}/${path.basename(file)}`;
-      if (s) await upload(s, key, file, sha, size);
-      out.push({ key: s ? key : `local-only:${path.basename(file)}`, bytes: size, sha256: sha });
+      await upload(s, key, file, sha, size);
+      out.push({ key, bytes: size, sha256: sha });
     }
   }
-  // Local copies: keep the newest few of each kind.
-  for (const kind of [`${name}-2`, `${name}-files-`]) {
+  // Local copies: keep only the newest of each kind. The dump is verified above, but a failed pack
+  // must not delete the previous good archive along with the older copies.
+  const kinds = filesError ? [`${name}-2`] : [`${name}-2`, `${name}-files-`];
+  for (const kind of kinds) {
     const list = (await readdir(dir)).filter((f) => f.startsWith(kind)).sort().reverse();
     for (const f of list.slice(KEEP_LOCAL)) await rm(path.join(dir, f), { force: true });
   }
   const summary = { at: now.toISOString(), uploaded: !!s && !filesError, objects: out, ...(filesError ? { filesError } : {}) };
   await sql`INSERT INTO settings (key, value, updated_by) VALUES ('backup.last', ${sql.json(summary as never)}, 'backup')
             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`;
-  if (!s) throw new Error("backup made locally but not uploaded: object store credentials are not configured");
   if (filesError) throw new Error(`database backed up, but the file archive failed: ${filesError}`);
   return summary;
 }

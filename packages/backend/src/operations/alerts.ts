@@ -12,7 +12,6 @@ import { sql } from "../db.ts";
 import { agentHandoffs, closeAgentWake, wakeAgent } from "../notify/agent.ts";
 import { duration, formatAlert, formatRecovery, sendAlert, type Finding, type Level } from "../notify/feishu.ts";
 import { stepsOnService } from "../editorial/models.ts";
-import { backupConfigured } from "./backup.ts";
 import { GROUPING_WARN_AFTER_MS, waitingSelectedNews } from "./grouping.ts";
 import { upstreamFindings } from "../media/upstream.ts";
 import { serverModules } from "../modules.ts";
@@ -166,17 +165,18 @@ async function refusedDeliveries(now: number, open: AlertState): Promise<Finding
 }
 
 async function backupAge(now: number): Promise<Finding[]> {
-  if (!backupConfigured()) return [];
   const [b] = await sql<{ value: { at: string; uploaded: boolean; filesError?: string } }[]>`SELECT value FROM settings WHERE key = 'backup.last'`;
   // A failed archive updates backup.last too. Reuse the run history so repeated failures cannot
   // reset the age; before the first success, count from the first attempt rather than from now.
   const [runs] = await sql<{ last_ok: Date | null; first_attempt: Date | null }[]>`
     SELECT max(finished_at) FILTER (WHERE status = 'ok') AS last_ok, min(started_at) AS first_attempt
     FROM job_runs WHERE job = 'ops.backup'`;
-  const lastOk = Math.max(runs?.last_ok?.getTime() ?? 0, b?.value.uploaded ? Date.parse(b.value.at) : 0);
+  // The local pair is a full backup; uploaded:false without filesError is a local-only success.
+  const ok = !!b && (b.value.uploaded || !b.value.filesError);
+  const lastOk = Math.max(runs?.last_ok?.getTime() ?? 0, ok ? Date.parse(b!.value.at) : 0);
   const since = lastOk || runs?.first_attempt?.getTime() || now;
   const age = now - since;
-  const state = b?.value.filesError ? `数据库已上传，附件打包失败：${b.value.filesError}` : b?.value.uploaded === false ? "未上传" : "";
+  const state = b?.value.filesError ? `数据库已备份，附件打包失败：${b.value.filesError}` : "";
   if (age > 50 * 3600_000) {
     return [{
       key: "backup.failed",
@@ -189,7 +189,7 @@ async function backupAge(now: number): Promise<Finding[]> {
       since: new Date(since),
     }];
   }
-  if (!b || !b.value.uploaded || age > 30 * 3600_000) {
+  if (!ok || age > 30 * 3600_000) {
     return [{ key: "backup.stale", level: "later", title: "数据库备份超过一天没成功", detail: b ? `最近一次 ${beijingStamp(b.value.at)}${state ? `（${state}）` : ""}；看 ops.backup` : "还没有成功的备份记录" }];
   }
   return [];

@@ -159,29 +159,34 @@ test("refusal and spent-budget alerts name the steps currently routed to the pro
 
 // Backup failures may overwrite the latest-attempt summary. Alert age must use the last successful
 // run; repeated failures must not reset it. With no success ever, age starts at the first attempt.
+// Monitoring does not depend on an object store: the local pair alone counts as a success.
 test("backup failures still escalate after fifty hours without a success", async () => {
-  Object.assign(process.env, {
-    DB_BACKUP_STORE_SECRET_ID: "test-backup-key", DB_BACKUP_STORE_SECRET_KEY: "test-backup-secret",
-    DB_BACKUP_STORE_BUCKET: "test-bucket", DB_BACKUP_STORE_REGION: "test-region",
-  });
   const now = Date.now();
   const old = new Date(now - 51 * 3600_000);
-  try {
-    await sql`INSERT INTO settings (key, value) VALUES ('backup.last', ${sql.json({ at: new Date(now).toISOString(), uploaded: false, filesError: "tar failed" })})
-      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`;
-    await sql`INSERT INTO job_runs (job, started_at, finished_at, status) VALUES ('ops.backup', ${old}, ${old}, 'ok')`;
-    await sql`INSERT INTO job_runs (job, started_at, finished_at, status) VALUES ('ops.backup', ${new Date(now)}, ${new Date(now)}, 'failed')`;
-    const backup = async () => (await collectFindings(now)).filter((f) => f.key.startsWith("backup."));
-    assert.equal((await backup())[0]?.level, "today", "the fresh failed attempt must not hide a stale successful backup");
-    await sql`DELETE FROM job_runs WHERE job = 'ops.backup'`;
-    await sql`INSERT INTO job_runs (job, started_at, finished_at, status) VALUES ('ops.backup', ${old}, ${old}, 'failed')`;
-    await sql`DELETE FROM settings WHERE key = 'backup.last'`;
-    assert.equal((await backup())[0]?.level, "today", "never-successful backups must also escalate");
-    await sql`UPDATE job_runs SET started_at = ${new Date(now)}, finished_at = ${new Date(now)} WHERE job = 'ops.backup'`;
-    assert.equal((await backup())[0]?.level, "later", "a first failed attempt does not claim two days of failure");
-  } finally {
-    for (const key of Object.keys(process.env)) if (key.startsWith("DB_BACKUP_STORE_")) delete process.env[key];
-  }
+  await sql`INSERT INTO settings (key, value) VALUES ('backup.last', ${sql.json({ at: new Date(now).toISOString(), uploaded: false, filesError: "tar failed" })})
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`;
+  await sql`INSERT INTO job_runs (job, started_at, finished_at, status) VALUES ('ops.backup', ${old}, ${old}, 'ok')`;
+  await sql`INSERT INTO job_runs (job, started_at, finished_at, status) VALUES ('ops.backup', ${new Date(now)}, ${new Date(now)}, 'failed')`;
+  const backup = async () => (await collectFindings(now)).filter((f) => f.key.startsWith("backup."));
+  assert.equal((await backup())[0]?.level, "today", "the fresh failed attempt must not hide a stale successful backup");
+  await sql`DELETE FROM job_runs WHERE job = 'ops.backup'`;
+  await sql`INSERT INTO job_runs (job, started_at, finished_at, status) VALUES ('ops.backup', ${old}, ${old}, 'failed')`;
+  await sql`DELETE FROM settings WHERE key = 'backup.last'`;
+  assert.equal((await backup())[0]?.level, "today", "never-successful backups must also escalate");
+  await sql`UPDATE job_runs SET started_at = ${new Date(now)}, finished_at = ${new Date(now)} WHERE job = 'ops.backup'`;
+  assert.equal((await backup())[0]?.level, "later", "a first failed attempt does not claim two days of failure");
+  await sql`DELETE FROM job_runs WHERE job = 'ops.backup'`;
+  await sql`INSERT INTO settings (key, value) VALUES ('backup.last', ${sql.json({ at: new Date(now).toISOString(), uploaded: false })})
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`;
+  await sql`INSERT INTO job_runs (job, started_at, finished_at, status) VALUES ('ops.backup', ${new Date(now)}, ${new Date(now)}, 'ok')`;
+  assert.deepEqual(await backup(), [], "a fresh local-only backup is a success, not an alert");
+  const stale = new Date(now - 31 * 3600_000);
+  await sql`INSERT INTO settings (key, value) VALUES ('backup.last', ${sql.json({ at: stale.toISOString(), uploaded: false })})
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`;
+  await sql`UPDATE job_runs SET started_at = ${stale}, finished_at = ${stale} WHERE job = 'ops.backup'`;
+  assert.equal((await backup())[0]?.level, "later", "a local-only backup older than a day is stale");
+  await sql`DELETE FROM settings WHERE key = 'backup.last'`;
+  await sql`DELETE FROM job_runs WHERE job = 'ops.backup'`;
 });
 
 // Failure cases: scoring succeeded but identity work failed outside processing_state; a short normal

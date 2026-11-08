@@ -1,7 +1,8 @@
 // Backups restore: a real database dump and file archive (uploads and feedback screenshots) are
-// unpacked and read back; the object store is a stand-in inside this process. A missing uploads directory
-// is a valid empty backup, an unreadable one is not; a file archive that fails still ships the database and
-// reports tar's own words, not the command line in front of them.
+// unpacked and read back; the object store is a stand-in inside this process, and without one the local
+// pair alone is a complete backup. A missing uploads directory is a valid empty backup, an unreadable one
+// is not; a file archive that fails still ships the database and reports tar's own words, not the command
+// line in front of them.
 import { tag } from "./setup.ts";
 import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
@@ -215,11 +216,38 @@ test("persistent packing failure still sends the database and reports incomplete
   assert.deepEqual(await readFile(path.join(config.dataDir, "feedback-screenshots/failure.png")), PNG);
 });
 
-test("local retention keeps three dump/archive pairs without deleting source attachments", async () => {
+test("local retention keeps only the newest dump/archive pair without deleting source attachments", async () => {
   await save("feedback-screenshots/retained.png");
   for (const day of [1, 2, 3, 4]) await runBackup(new Date(`2026-11-0${day}T04:00:00Z`));
-  assert.deepEqual((await readdir(path.join(config.dataDir, "backups"))).sort(), [2, 3, 4].flatMap(day => [`${stem}-2026110${day}0400.dump`, `${stem}-files-2026110${day}0400.tar.gz`]).sort());
+  assert.deepEqual((await readdir(path.join(config.dataDir, "backups"))).sort(), [`${stem}-202611040400.dump`, `${stem}-files-202611040400.tar.gz`].sort());
   assert.deepEqual(await readFile(path.join(config.dataDir, "feedback-screenshots/retained.png")), PNG);
+});
+
+// Without an object store the local pair is the backup itself: the run succeeds, nothing is uploaded,
+// and a later failed pack must not delete the previous good archive while rotating copies.
+test("a local-only backup succeeds and keeps the previous good archive when packing fails", async () => {
+  const storeKeys = Object.keys(env).filter(key => key.startsWith("DB_BACKUP_STORE_"));
+  const saved = Object.fromEntries(storeKeys.map(key => [key, process.env[key]]));
+  for (const key of storeKeys) delete process.env[key];
+  try {
+    await save("feedback-screenshots/local-only.png");
+    const first = await runBackup(new Date("2026-11-01T04:00:00Z"));
+    assert.equal(first.uploaded, false);
+    assert.equal(first.filesError, undefined);
+    assert.equal(objects.size, 0, "nothing is uploaded without a store");
+    assert.deepEqual(first.objects.map(object => object.key).sort(), [`local-only:${stem}-202611010400.dump`, `local-only:${stem}-files-202611010400.tar.gz`].sort());
+    await runBackup(new Date("2026-11-02T04:00:00Z"));
+    assert.deepEqual((await readdir(path.join(config.dataDir, "backups"))).sort(), [`${stem}-202611020400.dump`, `${stem}-files-202611020400.tar.gz`].sort());
+    const [last] = await sql`SELECT value FROM settings WHERE key = 'backup.last'`;
+    assert.equal(last!.value.uploaded, false);
+    assert.equal(last!.value.filesError, undefined);
+    await withPackingFailures(2, async () => {
+      await assert.rejects(runBackup(new Date("2026-11-03T04:00:00Z")), /file archive failed/);
+    });
+    assert.deepEqual((await readdir(path.join(config.dataDir, "backups"))).sort(), [`${stem}-202611030400.dump`, `${stem}-files-202611020400.tar.gz`].sort(), "the failed pack keeps the last good archive");
+  } finally {
+    Object.assign(process.env, saved);
+  }
 });
 
 test("a failed database dump keeps connection credentials out of argv and the reported error", async () => {
@@ -349,7 +377,7 @@ test("a real dump preserves libpq query parameter escaping", async () => {
   finally { config.databaseUrl = originalUrl; }
 });
 
-// 审计 2026-11-04 五：后台要展示备份的三种事实——未配置 / 最近成功 / 恢复已验证。恢复验证是主人每月在
+// 审计 2026-11-04 五：后台要展示备份的三种事实——存放位置 / 最近成功 / 恢复已验证。恢复验证是主人每月在
 // 隔离库做完后亲手记录的，不冒充自动结论。
 test("the admin sees the backup's three facts, and records a verified restore by hand", async () => {
   const { backupFacts, recordRestoreVerified } = await import("@aihot/backend/reports/status");

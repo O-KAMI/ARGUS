@@ -62,6 +62,13 @@ MCP 默认接受 `SITE_URL` 的主机以及 `localhost`、`127.0.0.1`、`[::1]`�
 
 ### 更新
 
+#### 本地备份成为默认，只保留最新一份（2026-11-08）
+
+- `ops.backup` 现在无论是否配置对象存储都按每天 04:10 排定：校验过的数据库 dump 加附件包写进数据目录的 `backups/`，仅本地也算一次成功运行（此前未配置对象存储时不排定，手动运行会以「未上传」报错）。
+- **本地只保留最新一份备份**（此前三份）：升级后的下一次备份运行会自动删除更早的本地 `.dump` 和 `.tar.gz`。要留旧副本的，升级前先挪走。附件打包失败时不删上一份完好的附件包。
+- 备份告警在仅本地模式下同样生效：本地成功计为成功，超过 30 小时没成功提醒、50 小时升级。
+- 配置 `DB_BACKUP_STORE_*` 时照旧另传异地副本，行为不变。
+
 #### 产品级审计一轮：采集快照、资产事实、阅读与出刊（2026-11-07）
 
 外部审计（`docs/plans/audit-2026-11-04/`）的工程项在本轮落地，迁移自动执行（镜像状态三列、`articles.vision_evidence`、`github_board_state`），不删除既有数据：
@@ -239,11 +246,11 @@ MCP 的 `subscriptions/listen` 现在立即返回 HTTP 404 和 JSON-RPC `-32601 
 
 ### 备份
 
-在 `.env` 里配置 `DB_BACKUP_STORE_*`（任何 S3 兼容的对象存储），每天 04:10 自动备份到那里。`DB_BACKUP_STORE_SECRET_ID`、`DB_BACKUP_STORE_SECRET_KEY`、`DB_BACKUP_STORE_BUCKET`、`DB_BACKUP_STORE_REGION` 四项都要填；不填 `DB_BACKUP_STORE_DOMAIN` 时按腾讯云 COS 拼地址（`<桶名>.cos.<地域>.myqcloud.com`），用其他 S3 兼容存储时，把这个存储桶的访问域名（含桶名，例如 AWS S3 的 `<桶名>.s3.<地域>.amazonaws.com`）填进 `DB_BACKUP_STORE_DOMAIN`。
+每天 04:10 自动备份：校验过的数据库 `.dump` 和附件包 `.tar.gz` 写进数据目录的 `backups/`，只保留最新一份，旧的自动删除；仅本地就是成功运行，告警按它计算。要另存异地副本，在 `.env` 里配置 `DB_BACKUP_STORE_*`（任何 S3 兼容的对象存储）。`DB_BACKUP_STORE_SECRET_ID`、`DB_BACKUP_STORE_SECRET_KEY`、`DB_BACKUP_STORE_BUCKET`、`DB_BACKUP_STORE_REGION` 四项都要填；不填 `DB_BACKUP_STORE_DOMAIN` 时按腾讯云 COS 拼地址（`<桶名>.cos.<地域>.myqcloud.com`），用其他 S3 兼容存储时，把这个存储桶的访问域名（含桶名，例如 AWS S3 的 `<桶名>.s3.<地域>.amazonaws.com`）填进 `DB_BACKUP_STORE_DOMAIN`。
 
 一次完整备份包含同一时间戳的数据库 `.dump` 和文件包 `.tar.gz`，文件名取自数据库名：Docker 里数据库叫 `aihot`，所以是 `aihot-<时间>.dump` 和 `aihot-files-<时间>.tar.gz`。文件包保留 `uploads/` 以及仍存本地的 `feedback-screenshots/`，不包含图片缓存或本地备份目录。已经转发到飞书的图片只保留数据库中的外部引用，文件包不保存飞书上的图片。
 
-恢复时同时取回这一对文件：使用与数据库版本兼容的 `pg_restore` 将 `.dump` 恢复到空数据库，再把文件包解压到数据目录根目录（Docker 中为 `/data`，非 Docker 使用 `AIHOT_DATA_DIR`，默认 `.data`），保留包内的子目录结构，并确保运行进程可读取这些文件。只恢复数据库不能找回仍由 `local:` 引用的反馈截图；旧备份中没有包含的文件也无法凭数据库引用恢复。
+恢复时同时取回这一对文件（仅本地备份就在数据目录的 `backups/` 里）：使用与数据库版本兼容的 `pg_restore` 将 `.dump` 恢复到空数据库，再把文件包解压到数据目录根目录（Docker 中为 `/data`，非 Docker 使用 `AIHOT_DATA_DIR`，默认 `.data`），保留包内的子目录结构，并确保运行进程可读取这些文件。只恢复数据库不能找回仍由 `local:` 引用的反馈截图；旧备份中没有包含的文件也无法凭数据库引用恢复。
 
 下面的手动导出只包含数据库，不包含上述附件目录：
 
