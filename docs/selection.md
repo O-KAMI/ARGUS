@@ -189,15 +189,20 @@ node --env-file=.env scripts/eval-selection.ts --track learning --sweep 40-90
 
 `.data/proposals/` 与 brief 都不进仓库（`.data/` 已 gitignore）。**生效只影响之后到达的资料**：存量不会因 `--apply` 自动重判（按哈希匹配重判是另一件事，见下节与 项目地图.md）。
 
-### 改了信源的轨道之后
+### 改了信源的轨道、或改了评分标准之后
 
-打标记只影响之后到达的资料。`analyses` 里已有的行仍是旧轨道措辞与门槛判出来的，**不会自动重判**（历史判定永不回溯重写，回执与 `prompt_version` 保证可审计）。要让存量按新轨道生效：
+打标记 / 改措辞都只影响之后到达的资料。`analyses` 里已有的行仍是旧措辞与门槛判出来的，**不会自动重判**（历史判定永不回溯重写，回执与 `prompt_version` 保证可审计）。要让存量按新措辞生效，用同一个脚本，`--by` 选匹配方式：
 
 ```bash
-node --env-file=.env scripts/reanalyze-track.ts --dry-run --limit 30   # 先看会动哪些
-node --env-file=.env scripts/reanalyze-track.ts --concurrency 1        # 实跑，可反复跑
+# 换轨（信源新打了 track:learning，存量还是新闻轨判的）——按提示词名字匹配，默认
+node --env-file=.env scripts/reanalyze-track.ts --dry-run --limit 30
+node --env-file=.env scripts/reanalyze-track.ts --concurrency 6
+
+# 改评分标准（名字不变、内容哈希变，如校准学习轨）——按当前评分版本的哈希匹配
+node --env-file=.env scripts/reanalyze-track.ts --by hash --track learning --dry-run
+node --env-file=.env scripts/reanalyze-track.ts --by hash --track learning --concurrency 6
 ```
 
-只有评分步骤付费（新闻轨每篇 2 次、学习轨 1 次）；预筛、结构、写作的回执按提示词版本复用，版本没变所以免费。脚本只挑"最新一条 analyses 的 `prompt_version` 与本轨措辞不符"的文章（按提示词**名字**匹配，用于换轨），因此幂等、可重入，并打印 before/after 的 `articles / selected / public` 对账。**并发调高会撞回执的 `busy` 守卫（同一 `logical_key` 正在别处进行），并发 1 最稳。**
+只有评分步骤因措辞变化重新付费（新闻轨每篇 2 次、学习轨 1 次）；预筛、结构、写作的回执按提示词版本复用，版本没变所以免费。**例外**：一篇原本低于 understand 门槛（学习轨 miss=20）、重判后升到 hit/edge（≥60）的文章会新付一次 understand，反向降档的同理可能新付一次 summarize——重判不只花评分的钱。脚本只挑"最新一条 analyses 的 `prompt_version` 与应有措辞不符"的文章，因此幂等、可重入，并打印 before/after 的 `articles / selected / public` 对账。
 
-**注意**：只改评分标准的措辞（提示词名字不变、内容哈希变）不会被这个按名字匹配的脚本挑中。要让存量按新标准重判，需按 `prompt_version` 的哈希匹配，是另一件事（见 项目地图.md 的存量重判说明）。
+**并发**：吞吐上限是预算的每分钟熔断（`budgets` 表，llm 默认 300/分钟）；并发 6 约 95 次/分钟，余量充足，调高前先按"每分钟付费次数 ≈ 并发 × 60 ÷ 每篇耗时 × 每篇付费次数"估算别撞 300。另一条限制是回执的 `busy` 守卫：`logical_key` 按**内容哈希**（service+purpose+model+identity）算、不是按文章 id，所以**两篇材料完全相同的文章并发处理会撞 `Receipt N is in flight`**（第五轮全量在低并发下也有 9 次）。这类失败是瞬时的，脚本幂等，**补跑一轮即可收回**；并发越高撞车概率越大，权衡吞吐与补跑成本。

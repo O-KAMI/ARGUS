@@ -1,26 +1,30 @@
-// Re-judges the articles of sources whose track changed after they were analysed. Tagging a source
-// `track:learning` only affects what arrives next: everything already in `analyses` was judged by the
-// news standard, at the news threshold, and would stay that way forever. This walks those articles
-// through the same pipeline the worker uses (editorial/analyze.ts, then publication/publish.ts), so the
-// site's current content is judged by the standard its source actually belongs to.
+// Re-judges stock whose newest judgement no longer matches the wording its source should use, walking
+// it through the same pipeline the worker uses (editorial/analyze.ts, then publication/publish.ts). The
+// wording can drift two ways, picked with --by:
+//   track (default): the source's track changed after the article was judged (e.g. tagged
+//     `track:learning`, but the stock was judged by the news standard). Matches by prompt NAME.
+//   hash: the track is unchanged but its score rubric was revised — same prompt name, new content hash.
+//     Matches by the current score version, so a calibration re-judges exactly the stock it applies to.
 //
 // It is not a retroactive re-judging of history under a revised wording. Each run appends a new
 // `analyses` row and leaves the old one intact, and the row records the prompt version that produced it,
-// so the news-track judgement stays auditable and comparable. What changes is which judgement the
+// so the earlier judgement stays auditable and comparable. What changes is which judgement the
 // publication shows.
 //
-// Only the score step is paid: the prefilter, structure and writing receipts are keyed on prompt
-// versions this does not change, so they reuse. Two score calls per article.
+// Only the score step re-pays for a wording change: the prefilter, structure and writing receipts are
+// keyed on prompt versions this does not change, so they reuse. The learning track takes one score call
+// per article, the news track two. An article that newly reaches the understand step (it was below the
+// floor before and is not now) pays that one call as well; the rest reuse.
 //
 // Event grouping is NOT re-run here (it needs the worker's queues). Facts and stories keep the
 // membership they were grouped with; re-grouping is a separate pass.
 //
 // Usage:
 //   node --env-file=.env scripts/reanalyze-track.ts [--dry-run] [--limit 50] [--concurrency 4]
-//     [--track learning] [--source <id>]
+//     [--track learning] [--by track|hash] [--source <id>]
 import { parseArgs } from "node:util";
 import { closeDb, sql } from "@aihot/backend/db";
-import { analyzeArticle } from "@aihot/backend/editorial/analyze";
+import { analyzeArticle, PROMPT_VERSIONS } from "@aihot/backend/editorial/analyze";
 import { publishArticle } from "@aihot/backend/publication/publish";
 import { TRACKS, type Track } from "@aihot/industry/selection";
 
@@ -30,21 +34,33 @@ const { values } = parseArgs({
     limit: { type: "string" },
     concurrency: { type: "string" },
     track: { type: "string", default: "learning" },
+    by: { type: "string", default: "track" },
     source: { type: "string" },
   },
 });
 
 const track = values.track as Track;
 if (track !== "learning" && track !== "news") throw new Error(`--track must be learning or news, got ${values.track}`);
+const by = values.by;
+if (by !== "track" && by !== "hash") throw new Error(`--by must be track or hash, got ${values.by}`);
 const limit = values.limit ? Number.parseInt(values.limit, 10) : null;
 const concurrency = Math.max(1, values.concurrency ? Number.parseInt(values.concurrency, 10) : 4);
 const tag = track === "learning" ? TRACKS.learning : null;
+// The track's current score wording, as stored on each judgement (`name@hash`).
+const currentScore = track === "learning" ? PROMPT_VERSIONS.scoreLearning : PROMPT_VERSIONS.score;
+// The learning wording is `selection-score-learning@…`; the news one is `selection-score@…`. The learning
+// string also starts with `selection-score`, so the news marker carries the `@` to tell them apart.
+const nameMarker = track === "learning" ? "selection-score-learning@" : "selection-score@";
 
-/** Articles whose newest analysis was produced by a different track's score wording than their source now has. */
+/**
+ * Articles whose newest analysis was produced by wording their source should no longer use:
+ * `--by track` picks the other track's wording (by name); `--by hash` picks this track's wording at an
+ * older content hash than the current rubric.
+ */
 async function pending(): Promise<{ id: string; source: string; score: number | null; selected: boolean }[]> {
-  // The learning wording's version contains `selection-score-learning`; the news one contains
-  // `selection-score@`, which the learning string also starts with — hence the `@`.
-  const marker = track === "learning" ? "selection-score-learning" : "selection-score@";
+  const drift = by === "hash"
+    ? sql`latest.prompt_version LIKE '%' || ${nameMarker} || '%' AND latest.prompt_version NOT LIKE '%' || ${currentScore} || '%'`
+    : sql`NOT (latest.prompt_version LIKE '%' || ${nameMarker} || '%')`;
   const rows = await sql<{ id: string; source: string; score: number | null; selected: boolean }[]>`
     SELECT a.id, a.source_id AS source, latest.score, latest.selected
     FROM articles a
@@ -54,7 +70,7 @@ async function pending(): Promise<{ id: string; source: string; score: number | 
       WHERE an.article_id = a.id ORDER BY an.id DESC LIMIT 1
     ) latest ON true
     WHERE s.participation_mode = 'editorial'
-      AND NOT (latest.prompt_version LIKE '%' || ${track === "learning" ? "selection-score-learning" : "selection-score@"} || '%')
+      AND ${drift}
       ${tag ? sql`AND ${tag} = ANY(s.tags)` : sql`AND NOT (${TRACKS.learning} = ANY(s.tags))`}
       ${values.source ? sql`AND a.source_id = ${values.source}` : sql``}
     ORDER BY a.published_at DESC NULLS LAST
@@ -75,7 +91,8 @@ async function counts(): Promise<Record<string, number>> {
 
 const before = await counts();
 const queue = await pending();
-console.log(`track=${track}  pending=${queue.length}  concurrency=${concurrency}${values["dry-run"] ? "  DRY RUN" : ""}`);
+console.log(`track=${track}  by=${by}  pending=${queue.length}  concurrency=${concurrency}${values["dry-run"] ? "  DRY RUN" : ""}`);
+console.log(`current score wording: ${currentScore}`);
 console.log(`before: ${JSON.stringify(before)}`);
 if (values["dry-run"]) {
   for (const r of queue.slice(0, 20)) console.log(`  would re-judge ${r.id} (${r.source}) score=${r.score} selected=${r.selected}`);
