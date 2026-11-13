@@ -6,7 +6,7 @@ import { describePublicationTime } from "../sources/dates.ts";
 //   1. prefilter: does the material belong to this industry at all (wide recall). Only BLOCK stops an
 //      item; a BLOCK on an original post without text counts as UNKNOWN;
 //   2. score: the source tier's threshold (industry/selection.ts) decides 精选 — two independent calls on
-//      the news track, on the learning track a second one only when the first sits on the threshold;
+//      the news track; the learning track takes one, and its boundary level (edge) is held for a human;
 //   3. structure: category, tags, subjects and the current news fact, beside scoring;
 //   4. writing, once the structure is in: the Chinese title, summary and reason by the content
 //      understanding for selected and near-selected items, by the cheaper title/summary prompts for the rest;
@@ -68,15 +68,14 @@ export const ANALYZE_PROMPT_VERSION = analyzePromptVersion("news");
 export const SCORE_CALLS = 2;
 
 /**
- * Whether a first verdict is worth a second opinion. The learning track answers in three levels, so a
- * verdict off the threshold cannot be moved by asking again: `hit` selects and `miss` does not, whatever
- * a second call would say. Only `edge` — the level that maps onto the threshold — is a real boundary, and
- * there the second call still vetoes. The news track keeps both calls: it averages a continuous score,
- * where a second opinion is information rather than a coin flip. The measured flip rate and the call
- * saving are in 项目地图.md §14.
+ * Whether a track takes a second score call. The news track averages a continuous score, where a second
+ * opinion is information rather than a coin flip, so it keeps both calls. The learning track answers in
+ * three discrete levels and takes only one: `hit` selects, `miss` rejects, and `edge` — the boundary the
+ * model cannot settle on its own — is held for a human decision (normalizeAnalysis `review`) rather than
+ * asked again. A second level call would only re-roll the same boundary, so it is not spent.
  */
-export function secondScoreWanted(track: Track, first: number, threshold: number): boolean {
-  return track !== "learning" || first === threshold;
+export function secondScoreWanted(track: Track): boolean {
+  return track !== "learning";
 }
 
 /**
@@ -257,7 +256,7 @@ export interface AnalysisRun {
    * The independent score calls and the tier threshold they are held against; absent when the material
    * is not scored. `refused`: the model's content filter declined it, so it is not selected.
    */
-  scores: { model: string; threshold: number; values: number[]; receiptIds: number[]; reused: boolean; refused?: boolean; kinds?: LearningKind[] } | null;
+  scores: { model: string; threshold: number; values: number[]; receiptIds: number[]; reused: boolean; refused?: boolean; kinds?: LearningKind[]; level?: LearningLevel } | null;
   /** The reader-facing copy: `understand` (selected, near-selected), `summarize`, `verbatim` (a Chinese short post), `none`. */
   writing: {
     kind: "understand" | "summarize" | "verbatim" | "none";
@@ -345,13 +344,14 @@ async function runScores(
     temperature: call.temperature, maxTokens: call.maxTokens, timeoutMs: call.timeoutMs,
   };
   let kinds: LearningKind[] = [];
+  let level: LearningLevel | undefined;
   const values: number[] = [];
   const receiptIds: number[] = [];
   let reused = true;
-  // One after the other: the second call reuses the provider's cached prompt, and is not made at all
-  // when the first verdict is already decisive.
+  // One after the other: the news track's second call reuses the provider's cached prompt. The learning
+  // track stops after one — its boundary level goes to a human, not to a second roll.
   for (let i = 0; i < SCORE_CALLS; i++) {
-    if (i > 0 && !secondScoreWanted(track, values[0]!, threshold)) break;
+    if (i > 0 && !secondScoreWanted(track)) break;
     checkAnalysisRunning();
     try {
       // Each call is its own paid request; an explicit re-evaluation gets new ones.
@@ -362,7 +362,7 @@ async function runScores(
         // The level is mapped onto a score here, so the mean-against-threshold rule and the score shown
         // on the card stay exactly the machinery the news track already uses.
         values.push(SELECTION.learning.levels[res.data.level as LearningLevel]);
-        if (i === 0) kinds = knownKinds(res.data.kinds);
+        if (i === 0) { kinds = knownKinds(res.data.kinds); level = res.data.level as LearningLevel; }
         receiptIds.push(res.receiptId);
         reused &&= res.reused;
       } else {
@@ -380,7 +380,7 @@ async function runScores(
       throw error;
     }
   }
-  return track === "learning" ? { model, threshold, values, receiptIds, reused, kinds } : { model, threshold, values, receiptIds, reused };
+  return track === "learning" ? { model, threshold, values, receiptIds, reused, kinds, level } : { model, threshold, values, receiptIds, reused };
 }
 
 /** The production score step; its threshold stays case-specific even when an evaluator shares model output. */
@@ -596,7 +596,10 @@ export function normalizeAnalysis(run: AnalysisRun) {
   const values = run.scores && !run.scores.refused ? run.scores.values : null;
   const score = shownScore(run.scores);
   const threshold = run.scores?.threshold ?? null;
-  const selected = relevance === "pass" && scoresSelect(run.scores);
+  // The learning track's boundary level is not an auto-decision: it is held for a human in the review
+  // queue. `hit` still selects and `miss` still rejects on the one call; only `edge` waits.
+  const review = run.scores?.level === "edge";
+  const selected = relevance === "pass" && scoresSelect(run.scores) && !review;
   const kinds = run.scores?.kinds ?? [];
   const subjects = run.structure?.subjects ?? [];
   const tags = [...(run.structure?.tags ?? [])];
@@ -607,6 +610,7 @@ export function normalizeAnalysis(run: AnalysisRun) {
   return {
     relevance,
     selected,
+    review,
     score,
     scores: values,
     scoreModel: run.scores?.model ?? null,
@@ -654,6 +658,7 @@ export async function analyzeArticle(articleId: string, opts: StepOpts = {}): Pr
     prefilter: run.prefilter && { label: run.prefilter.label, reason: run.prefilter.reason },
     scores: out.scores, scoreModel: out.scoreModel, threshold: out.threshold, ...(out.scoreRefused ? { scoreRefused: true } : {}),
     ...(out.kinds.length ? { learningKinds: out.kinds } : {}),
+    ...(out.review ? { review: true } : {}),
     ...(w ? { writer: w.kind, writerModel: w.model, itemType: w.itemType ?? null, authorRole: w.authorRole ?? null } : {}),
     ...(w?.identityGuard?.outcome === "fallback" ? { identityGuard: w.identityGuard } : {}),
     scope: out.scope, fact: out.fact,

@@ -39,7 +39,7 @@ export interface AdminRerun {
 }
 
 /** Items waiting for the admin, shown on the navigation: the engine's, and the modules' under their own keys. */
-export type AdminNavCounts = Partial<Record<"feedback" | "sources" | "runs", number>> & Record<string, number | undefined>;
+export type AdminNavCounts = Partial<Record<"feedback" | "sources" | "runs" | "review", number>> & Record<string, number | undefined>;
 
 /** One manual change (audit_log), as a history list shows it. */
 export interface AdminAuditEntry {
@@ -398,7 +398,7 @@ export interface AdminSelectBenchRuns {
 }
 
 export interface AdminSelectBenchDecision {
-  decision: "select" | "reject" | null;
+  decision: "select" | "reject" | "hold" | null;
   score: number | null;
   relevance: string | null;
   category: string | null;
@@ -422,8 +422,9 @@ export interface AdminSelectBenchCases {
  */
 export type AdminLabelDecision = "select" | "reject";
 
-/** What the page lists: items still without a human answer, the ones already answered, or both. */
-export type AdminLabelingState = "awaiting" | "labelled" | "all";
+/** What the page lists: items still without a human answer, the ones already answered, the learning
+ *  boundary cases held for a human decision, or all. */
+export type AdminLabelingState = "awaiting" | "labelled" | "review" | "all";
 
 export interface AdminLabelingRow {
   id: string;
@@ -444,6 +445,8 @@ export interface AdminLabelingRow {
   analyzed_at: Timestamp | null;
   /** Whether that judgement was produced under the learning track's own wording, or the news track's. */
   scored_learning: boolean;
+  /** The learning track held this item at its boundary level (edge) for a human decision. */
+  review: boolean;
   /** The public projection as it stands now. */
   published_selected: boolean | null;
   visibility: string | null;
@@ -457,7 +460,7 @@ export interface AdminLabeling {
   page: number;
   state: AdminLabelingState;
   rows: AdminLabelingRow[];
-  counts: { items: number; scored: number; labelled: number; awaiting: number };
+  counts: { items: number; scored: number; labelled: number; awaiting: number; review: number };
 }
 
 export interface AdminLabelSelection {

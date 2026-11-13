@@ -7,7 +7,8 @@ import { binaryMetrics, nonEmpty, nullableString, parseCasesJsonl, round, Sampli
 /** "either": both decisions are acceptable; such cases stay out of the decisive metrics. */
 export const GOLD_DECISIONS = ["select", "reject", "either"] as const;
 export type SelectionGoldDecision = (typeof GOLD_DECISIONS)[number];
-export type SelectionDecision = Exclude<SelectionGoldDecision, "either">;
+/** The pipeline's answer: select/reject auto-decide, `hold` defers the learning boundary to a human. */
+export type SelectionDecision = "select" | "reject" | "hold";
 
 /** The track a case is judged on: the value trackOf(sources.tags) gives (industry/selection.ts). */
 export const GOLD_TRACKS = ["learning", "news", "inherit"] as const;
@@ -55,33 +56,40 @@ export interface SelectionMetricCase {
 
 /**
  * Selection quality has two denominators:
- * - valid-output metrics describe decisions the pipeline actually returned;
+ * - valid-output metrics describe the decisions the pipeline auto-made (select/reject);
  * - coverage / completeAccuracy charge failures against every decisive gold case.
- * Gold "either" cases are excluded from both denominators, but their failures remain observable.
+ * A `hold` (the learning boundary deferred to a human) is a deliberate answer, not a failure: it counts
+ * toward coverage and toward `held`/`reviewRate`, but not toward the auto-decision accuracy. Gold "either"
+ * cases are excluded from both denominators, but their failures remain observable.
  */
 export function selectionMetrics(cases: SelectionMetricCase[]) {
   const decisive = cases.filter((row) => row.gold !== "either");
   const eitherErrors = cases.filter((row) => row.gold === "either" && row.decision === null).length;
-  const m = binaryMetrics(decisive.flatMap((row) => (row.decision === null ? [] : [{ gold: row.gold === "select", predicted: row.decision === "select" }])), decisive.length);
+  const auto = decisive.filter((row) => row.decision === "select" || row.decision === "reject");
+  const held = decisive.filter((row) => row.decision === "hold").length;
+  const answered = auto.length + held;
+  const m = binaryMetrics(auto.map((row) => ({ gold: row.gold === "select", predicted: row.decision === "select" })), auto.length);
   return {
     n: cases.length,
     decisiveGold: decisive.length,
-    decisive: m.answered,
+    decisive: auto.length,
+    held,
     either: cases.length - decisive.length,
-    errors: m.errors + eitherErrors,
-    decisiveErrors: m.errors,
+    errors: (decisive.length - answered) + eitherErrors,
+    decisiveErrors: decisive.length - answered,
     eitherErrors,
     tp: m.tp,
     fp: m.fp,
     fn: m.fn,
     tn: m.tn,
-    coverage: m.coverage,
+    coverage: round(answered / Math.max(1, decisive.length)),
     accuracy: m.accuracy,
-    completeAccuracy: m.completeAccuracy,
+    completeAccuracy: round((m.tp + m.tn) / Math.max(1, decisive.length)),
     precision: m.precision,
     recall: m.recall,
     f1: m.f1,
-    selectedRate: round((m.tp + m.fp) / Math.max(1, m.answered)),
+    selectedRate: round((m.tp + m.fp) / Math.max(1, auto.length)),
+    reviewRate: round(held / Math.max(1, decisive.length)),
     // A property of the labelled decisive set, not of whichever cases a model happened to answer.
     goldSelectRate: round(decisive.filter((row) => row.gold === "select").length / Math.max(1, decisive.length)),
   };
@@ -97,11 +105,12 @@ export interface SelectionThresholdCase {
 }
 
 /**
- * The decision a stored score run yields under `threshold`, replayed with the production stopping rule
- * (secondScoreWanted + scoresSelect, the same functions the worker runs): the second call happens only
- * when the first verdict sits on the threshold, so a run scored under another threshold may hold no
- * second value where this one wants it. That gap is reported as `missing` and decides nothing — never a
- * low score (a confident reject the pipeline would not have made) and never a success.
+ * The decision a stored score run yields under `threshold`, replayed with the production rule
+ * (secondScoreWanted + scoresSelect + the learning review hold — the same functions the worker runs).
+ * The news track averages two calls; a run scored under another threshold may hold no second value where
+ * this one wants it, reported as `missing` and deciding nothing — never a low score (a confident reject
+ * the pipeline would not have made) and never a success. The learning track takes one call: `hit` selects,
+ * `miss` rejects, and `edge` is held for a human (`hold`).
  */
 export function replaySelectionDecision(
   track: SelectionGoldTrack,
@@ -110,7 +119,8 @@ export function replaySelectionDecision(
 ): { decision: SelectionDecision; second: "stored" | "unwanted" } | { decision: null; second: "missing" } | null {
   if (!scores || scores.refused || scores.values.length === 0) return null;
   const first = scores.values[0]!;
-  if (!secondScoreWanted(track, first, threshold)) {
+  if (!secondScoreWanted(track)) {
+    if (scores.level === "edge") return { decision: "hold", second: "unwanted" };
     return { decision: scoresSelect({ ...scores, values: [first] }, threshold) ? "select" : "reject", second: "unwanted" };
   }
   if (scores.values.length < 2) return { decision: null, second: "missing" };
@@ -144,6 +154,9 @@ export function selectionThresholdMetrics(cases: SelectionThresholdCase[], thres
     decisive: metrics.decisive,
     decisiveGold: metrics.decisiveGold,
     decisiveErrors: metrics.decisiveErrors,
+    /** Learning boundary cases held for a human at this threshold (the news track holds none). */
+    held: metrics.held,
+    reviewRate: metrics.reviewRate,
     /** Cases whose stored answers cannot answer this threshold (a wanted second opinion was never asked). */
     gap: replayed.filter((row) => row.replay?.second === "missing").length,
     /** Expected score calls per 100 answered cases were this threshold live. */

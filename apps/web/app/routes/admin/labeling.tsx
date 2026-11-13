@@ -33,6 +33,7 @@ function LabelCard({ row }: { row: AdminLabelingRow }) {
           : <Badge tone="warn" title="这条的评分出自新闻轨的标准（selection-score），学习轨的标准还没在它上面跑过">按新闻轨标准评分</Badge>}
         {row.score !== null && <span className="num">评分 {row.score}</span>}
         {row.analysis_selected && <Badge tone="ok">模型判为精选</Badge>}
+        {row.review && <Badge tone="info" title="学习轨判为边界档（edge），模型拿不准，先不自动入选，等你确认">边界档·待复核</Badge>}
         {row.relevance !== "pass" && <Badge tone="warn" title="结构化或文案没有完成，公开池里按未定处理">相关性 {row.relevance ?? "未知"}</Badge>}
         {row.published_selected ? <Badge tone="ok">公开精选中</Badge> : <Badge tone="muted">不在公开精选</Badge>}
         {row.override_selected !== null && <Badge tone="info" title={`人工设置 v${row.override_version}`}>人工设为{row.override_selected ? "精选" : "不精选"}</Badge>}
@@ -67,8 +68,8 @@ function LabelCard({ row }: { row: AdminLabelingRow }) {
         busy={pending !== null}
         description={
           ask === "select"
-            ? "这条会立刻按人工精选重新发布（走内容诊断里同一套人工设置，带版本检查与审计），同时把你的判断写进 selection_gold，作为校准学习轨门槛的样本。"
-            : "这条会立刻按人工不精选重新发布（走内容诊断里同一套人工设置，带版本检查与审计），同时把你的判断写进 selection_gold，作为校准学习轨门槛的样本。"
+            ? "这条会立刻按人工精选重新发布（走内容诊断里同一套人工设置，带版本检查与审计），同时把你的判断写进 selection_gold，作为校准学习轨评分标准的样本。"
+            : "这条会立刻按人工不精选重新发布（走内容诊断里同一套人工设置，带版本检查与审计），同时把你的判断写进 selection_gold，作为校准学习轨评分标准的样本。"
         }
         onClose={() => setAsk(null)}
         onSubmit={(reason) => (ask === null ? false : submit(ask, reason))}
@@ -91,6 +92,14 @@ function EmptyLabeling({ counts, state }: { counts: AdminLabeling["counts"]; sta
     );
   }
   if (state === "labelled" && counts.labelled === 0) return <Empty>还没有标注过任何内容。切到“待标注”开始。</Empty>;
+  if (state === "review" && counts.review === 0) {
+    return (
+      <Empty>
+        没有待复核的边界档：学习轨目前没有在 edge 档停下、又还没人工确认的内容。
+        新内容被评为边界档（模型拿不准）时会出现在这里，先不自动入选，等你确认。
+      </Empty>
+    );
+  }
   if (state === "awaiting") {
     return (
       <Empty>
@@ -107,18 +116,19 @@ export default function Labeling({ loaderData }: Route.ComponentProps) {
   return (
     <AdminPage
       title="精选标注"
-      subtitle="学习轨信源里已经评过分的内容，一条一条给出你自己的判断：能不能提高你的 AI 水平。每标注一条，公开精选立刻按你的判断生效，同时这条判断会存进 selection_gold，作为校准门槛的人工样本。这里不调用任何模型，显示的评分是已经存下的那一次。"
+      subtitle="学习轨信源里已经评过分的内容，一条一条给出你自己的判断：能不能提高你的 AI 水平。模型拿不准的边界档会停在“待复核”，先不自动入选，等你确认。每标注一条，公开精选立刻按你的判断生效，同时这条判断会存进 selection_gold，作为校准评分标准的人工样本。这里不调用任何模型，显示的评分是已经存下的那一次。"
       actions={<ButtonLink to="/admin/selectbench">SelectBench</ButtonLink>}
     >
-      <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-5">
         <Stat label="学习轨内容" value={counts.items} hint="带 track:learning 标记的信源收进来的全部条目" />
         <Stat label="有评分" value={counts.scored} hint="只有评过分的才拿来标注" />
+        <Stat label="待复核" value={counts.review} tone={counts.review ? "warn" : undefined} hint="边界档（edge），模型拿不准、等你确认" />
         <Stat label="已标注" value={counts.labelled} tone={counts.labelled ? "ok" : undefined} hint="校准建议 30–50 条" />
         <Stat label="待标注" value={counts.awaiting} tone={counts.awaiting ? "warn" : undefined} />
       </div>
       <Card
         title="标注"
-        right={<FilterChips param="state" options={[{ value: "awaiting", label: "待标注", count: counts.awaiting }, { value: "labelled", label: "已标注", count: counts.labelled }, { value: "all", label: "全部", count: counts.scored }]} />}
+        right={<FilterChips param="state" options={[{ value: "review", label: "待复核", count: counts.review }, { value: "awaiting", label: "待标注", count: counts.awaiting }, { value: "labelled", label: "已标注", count: counts.labelled }, { value: "all", label: "全部", count: counts.scored }]} />}
         pad={false}
       >
         {rows.length ? (
@@ -131,9 +141,9 @@ export default function Labeling({ loaderData }: Route.ComponentProps) {
       </Card>
       <Pager page={page} hasMore={rows.length === 50} />
       <p className="mt-4 text-[12.5px] leading-relaxed text-ink-4">
-        校准办法：先在这里标 30–50 条，再跑 <code className="num">node --env-file=.env scripts/eval-selection.ts --export-gold</code> 导出金标集，
-        用 <code className="num">--track learning</code> 在 40–90 之间扫描门槛，找 FP/FN 的拐点，然后把门槛定下来（见 docs/selection.md）。
-        门槛只能用你在这里标注的样本校准：不用模型给自己打分，也不拿上游站点旧的精选当人工证据。
+        校准办法：先在这里标 30–50 条（模型拿不准的边界档在“待复核”里确认），再跑 <code className="num">node --env-file=.env scripts/eval-selection.ts --export-gold</code> 导出金标集，
+        用 <code className="num">--track learning</code> 看模型判得准不准、哪些落在边界档（见 docs/selection.md）。
+        学习轨靠评分标准（什么算 hit / edge / miss）校准，不是靠挪门槛；标准只能用你在这里标注的样本来改：不用模型给自己打分，也不拿上游站点旧的精选当人工证据。
       </p>
     </AdminPage>
   );

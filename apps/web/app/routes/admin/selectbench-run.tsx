@@ -20,6 +20,14 @@ const GOLD: Record<string, [string, "accent" | "muted" | "info"]> = { select: ["
 function verdict(d: AdminSelectBenchDecision | undefined, gold: string) {
   if (!d) return <span className="text-ink-4">—</span>;
   if (d.decision === null) return <Badge tone="bad" title={d.error ?? undefined}>失败</Badge>;
+  if (d.decision === "hold") {
+    return (
+      <span className="inline-flex items-center gap-1.5">
+        <Badge tone="info" title="学习轨边界档，模型拿不准，交人工复核">待复核</Badge>
+        <span className="num text-[12px] text-ink-3">{d.score ?? "—"}</span>
+      </span>
+    );
+  }
   const right = gold === "either" || d.decision === gold;
   return (
     <span className="inline-flex items-center gap-1.5">
@@ -55,6 +63,7 @@ export default function SelectBenchRun({ loaderData: d }: Route.ComponentProps) 
               <div className="num mt-0.5 text-[12px] text-ink-3">有效输出准确 {pct(s.accuracy)} · 覆盖 {pct(s.coverage)} · 完整准确 {pct(s.completeAccuracy)}</div>
               <div className="num mt-0.5 text-[12px] text-ink-3">精确 {pct(s.precision)} · 召回 {pct(s.recall)} · 金标入选 {pct(s.goldSelectRate)}</div>
               <div className="num mt-0.5 text-[12px] text-ink-4">误选 {s.fp ?? "—"} · 漏选 {s.fn ?? "—"} · {s.decisiveErrors !== undefined ? <>决定失败 {s.decisiveErrors}{s.eitherErrors ? ` · 两可失败 ${s.eitherErrors}` : ""}</> : <>失败 {s.errors ?? 0}</>}</div>
+              {s.held !== undefined && <div className="num mt-0.5 text-[12px] text-ink-4">待复核 {s.held}（{pct(s.reviewRate)}）· 自动决定 {s.decisive}</div>}
             </button>
           );
         })}
@@ -69,6 +78,7 @@ export default function SelectBenchRun({ loaderData: d }: Route.ComponentProps) 
             { value: "tp", label: "选对" },
             { value: "tn", label: "正确不选" },
             { value: "either", label: "两可" },
+            { value: "hold", label: "待复核" },
             { value: "error", label: "失败" },
           ]}
         />

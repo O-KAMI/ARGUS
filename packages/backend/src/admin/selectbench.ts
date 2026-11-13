@@ -114,6 +114,7 @@ export async function selectBenchRun(id: string, f: { model?: string; outcome?: 
         WHEN 'tp' THEN decision = 'select' AND gold = 'select'
         WHEN 'tn' THEN decision = 'reject' AND gold = 'reject'
         WHEN 'either' THEN gold = 'either'
+        WHEN 'hold' THEN decision = 'hold'
         WHEN 'error' THEN decision IS NULL
         ELSE true END))
       AND (${!!f.disagree} IS FALSE OR count(DISTINCT decision) > 1)

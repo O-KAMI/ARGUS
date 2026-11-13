@@ -1,9 +1,9 @@
 // Checks the selection against your own labelled samples (a "gold set"), one track at a time: each case
 // runs the site's selection steps (editorial/analyze.ts) — the prefilter, then that track's score prompt
-// twice with every model in --models, the two scores deciding against the track's threshold — and is
-// compared with your decision. Metrics and the threshold sweep are reported per track, because the tracks
-// ask with different wordings and hold the answer against different thresholds: one number over both
-// would say nothing about either.
+// with every model in --models (the news track averages two calls; the learning track takes one and holds
+// its boundary level for a human) — and is compared with your decision. Metrics and the threshold sweep
+// are reported per track, because the tracks ask with different wordings and hold the answer against
+// different thresholds: one number over both would say nothing about either.
 //
 // CALIBRATION PROTOCOL (docs/selection.md). Hand-label 30–50 real items in the admin (精选标注); each
 // label also decides the item's public `selected` and is stored in selection_gold. Export them with
@@ -154,9 +154,12 @@ function toInput(r: SelectionGoldRow, track: SelectionGoldTrack): AnalyzeInputAr
   };
 }
 
-/** The site's decision for the case, at its track threshold or at `threshold`; null when the case failed. */
+/** The site's decision for the case, at its track threshold or at `threshold`; null when the case failed.
+ *  The learning boundary (edge) is held for a human, mirroring normalizeAnalysis. */
 const decide = (x: Outcome, threshold?: number): SelectionDecision | null =>
-  x.error !== null ? null : x.relevance === "pass" && scoresSelect(x.scores, threshold) ? "select" : "reject";
+  x.error !== null ? null
+    : x.relevance === "pass" && x.scores?.level === "edge" ? "hold"
+      : x.relevance === "pass" && scoresSelect(x.scores, threshold) ? "select" : "reject";
 
 function mistakesOf(results: Outcome[]) {
   const mistakes: Array<Record<string, unknown>> = [];

@@ -6,6 +6,9 @@ import { after, test } from "node:test";
 import { sql, closeDb } from "@aihot/backend/db";
 import { createSource, updateSource } from "@aihot/backend/admin/sources";
 import { overrideFields, rerun, setSeoIndexed, setVisibility } from "@aihot/backend/admin/content";
+import { listLabeling, labelSelection } from "@aihot/backend/admin/labeling";
+import { PROMPT_VERSIONS } from "@aihot/backend/editorial/analyze";
+import { TRACKS } from "@aihot/industry/selection";
 import { upsertMaterial } from "@aihot/backend/content/materials";
 import { publishArticle } from "@aihot/backend/publication/publish";
 import { getBoss, stopBoss } from "@aihot/backend/jobs/queue";
@@ -156,4 +159,42 @@ test("bad admin input is a client error and never starts processing", async () =
   assert.equal(response.statusCode, 400);
   const [state] = await sql`SELECT processing_state FROM articles WHERE id = ${id}`;
   assert.equal(state!.processing_state, "analyzed");
+});
+
+test("the learning review queue holds boundary cases until a human decides, then releases them to gold", async () => {
+  const learningSource = `learning-${T}`;
+  await sql`INSERT INTO sources (id, name, kind, tier, tags) VALUES (${learningSource}, 'Learning review', 'rss', 'T1', ${[TRACKS.learning]})`;
+  const learningArticle = async (score: number, selected: boolean, output: { review?: boolean; scores: number[]; level: string }) => {
+    const id = await article();
+    await sql`UPDATE articles SET source_id = ${learningSource}, grouping_status = 'complete', grouped_at = now(), selection_adds_value = true WHERE id = ${id}`;
+    await sql`INSERT INTO analyses (article_id, input_revision, origin, relevance, score, selected, summary_zh, prompt_version, output)
+              VALUES (${id}, 1, 'model', 'pass', ${score}, ${selected}, '中文摘要', ${PROMPT_VERSIONS.scoreLearning}, ${sql.json(output)})`;
+    await publishArticle(id);
+    return id;
+  };
+  // edge is held: the latest analysis carries the review marker and nothing is auto-selected
+  const held = await learningArticle(60, false, { review: true, scores: [60], level: "edge" });
+  // hit auto-decides: no review marker, so it never enters the queue
+  const hit = await learningArticle(90, true, { scores: [90], level: "hit" });
+
+  const queue = await listLabeling({ state: "review" });
+  assert.ok(queue.rows.some((r) => r.id === held), "the edge-held item is in the review queue");
+  assert.ok(!queue.rows.some((r) => r.id === hit), "an auto-decided hit is not in the review queue");
+  assert.equal(queue.rows.find((r) => r.id === held)!.review, true);
+  assert.equal(queue.rows.find((r) => r.id === held)!.published_selected, false, "held means not auto-selected publicly");
+  assert.equal(queue.counts.review, 1);
+
+  // the human confirms it: the public decision flips now and the answer lands in selection_gold
+  const result = await labelSelection(held, { decision: "select", reason: "边界档人工确认", version: 0 }, "test-review");
+  assert.equal(result.decision, "select");
+  assert.equal(result.selected, true);
+  const [gold] = await sql`SELECT decision, track FROM selection_gold WHERE article_id = ${held}`;
+  assert.equal(gold!.decision, "select");
+  assert.equal(gold!.track, "learning");
+
+  // once decided an override exists, so it leaves the review queue and shows as labelled
+  const after = await listLabeling({ state: "review" });
+  assert.ok(!after.rows.some((r) => r.id === held), "a decided item leaves the review queue");
+  assert.equal(after.counts.review, 0);
+  assert.ok((await listLabeling({ state: "labelled" })).rows.some((r) => r.id === held), "the decided item is now labelled");
 });

@@ -13,13 +13,18 @@ import { loadAnalyzeInput, PROMPT_VERSIONS, type AnalyzeInputArticle } from "../
 import { translateInputOf } from "../editorial/writing.ts";
 import { overrideFields } from "./content.ts";
 
-const STATES = ["awaiting", "labelled", "all"] as const;
+const STATES = ["awaiting", "labelled", "review", "all"] as const;
 
 /**
  * Learning-track items with a stored score, newest first. An item the prefilter blocked or that never
  * got material has no score: there is no number for a threshold to be swept against, and forcing
  * `selected` on it would not reach the public feeds, so it is not offered for labelling — the counts say
  * how many such items there are rather than leaving the list silently short.
+ *
+ * The `review` state is the queue of boundary cases the learning track held (level `edge`) and no human
+ * has decided yet (no editorial override): the items the model could not settle on its own, surfaced for
+ * confirmation instead of being auto-selected. Deciding one here goes through labelSelection like any
+ * other label, so the answer also lands in selection_gold as calibration evidence.
  */
 export async function listLabeling(f: { state?: string; page?: number } = {}): Promise<BeforeJson<AdminLabeling>> {
   const state: AdminLabelingState = (STATES as readonly string[]).includes(f.state ?? "") ? (f.state as AdminLabelingState) : "awaiting";
@@ -31,26 +36,33 @@ export async function listLabeling(f: { state?: string; page?: number } = {}): P
              an.relevance, an.score, an.selected AS analysis_selected, an.category,
              an.title_zh, an.summary_zh, an.reason_zh, an.created_at AS analyzed_at,
              position(${PROMPT_VERSIONS.scoreLearning} in an.prompt_version) > 0 AS scored_learning,
+             coalesce(an.output->>'review' = 'true', false) AS review,
              p.selected AS published_selected, p.visibility,
              coalesce(o.version, 0) AS override_version, (o.fields->>'selected')::boolean AS override_selected,
              CASE WHEN g.case_id IS NULL THEN NULL
                   ELSE jsonb_build_object('decision', g.decision, 'actor', g.actor, 'created_at', g.created_at) END AS gold
       FROM articles a
       JOIN sources s ON s.id = a.source_id
-      JOIN LATERAL (SELECT relevance, score, selected, category, title_zh, summary_zh, reason_zh, created_at, prompt_version
+      JOIN LATERAL (SELECT relevance, score, selected, category, title_zh, summary_zh, reason_zh, created_at, prompt_version, output
                     FROM analyses x WHERE x.article_id = a.id ORDER BY x.id DESC LIMIT 1) an ON an.score IS NOT NULL
       LEFT JOIN publications p ON p.article_id = a.id
       LEFT JOIN editorial_overrides o ON o.article_id = a.id
       LEFT JOIN selection_gold g ON g.article_id = a.id
       WHERE ${TRACKS.learning} = ANY (s.tags)
-        AND (${state} = 'all' OR (${state} = 'labelled') = (g.case_id IS NOT NULL))
+        AND ((${state} = 'awaiting' AND g.case_id IS NULL)
+          OR (${state} = 'labelled' AND g.case_id IS NOT NULL)
+          OR (${state} = 'review' AND an.output->>'review' = 'true' AND o.article_id IS NULL)
+          OR (${state} = 'all'))
       ORDER BY a.discovered_at DESC, a.id
       LIMIT 50 OFFSET ${(page - 1) * 50}`,
     sql<AdminLabeling["counts"][]>`
       SELECT count(*)::int AS items, count(*) FILTER (WHERE scored)::int AS scored,
-             count(*) FILTER (WHERE labelled)::int AS labelled, count(*) FILTER (WHERE scored AND NOT labelled)::int AS awaiting
+             count(*) FILTER (WHERE labelled)::int AS labelled, count(*) FILTER (WHERE scored AND NOT labelled)::int AS awaiting,
+             count(*) FILTER (WHERE review)::int AS review
       FROM (SELECT EXISTS (SELECT 1 FROM analyses x WHERE x.article_id = a.id AND x.score IS NOT NULL) AS scored,
-                   EXISTS (SELECT 1 FROM selection_gold g WHERE g.article_id = a.id) AS labelled
+                   EXISTS (SELECT 1 FROM selection_gold g WHERE g.article_id = a.id) AS labelled,
+                   ((SELECT x.output->>'review' FROM analyses x WHERE x.article_id = a.id ORDER BY x.id DESC LIMIT 1) = 'true'
+                    AND NOT EXISTS (SELECT 1 FROM editorial_overrides o WHERE o.article_id = a.id)) AS review
             FROM articles a JOIN sources s ON s.id = a.source_id WHERE ${TRACKS.learning} = ANY (s.tags)) t`,
   ]);
   return { page, state, rows, counts };
