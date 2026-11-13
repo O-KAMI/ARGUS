@@ -95,6 +95,21 @@ export function selectionMetrics(cases: SelectionMetricCase[]) {
   };
 }
 
+/**
+ * How humans resolved the boundary the model held (`hold`): the signal that calibrates hit/edge/miss.
+ * A boundary mostly rejected means `edge` is too loose (push it toward miss); mostly selected means too
+ * tight (push it toward hit). `either` marks a genuinely acceptable boundary the rubric may keep holding.
+ */
+export function heldResolutions(cases: SelectionMetricCase[]) {
+  const held = cases.filter((row) => row.decision === "hold");
+  return {
+    n: held.length,
+    select: held.filter((row) => row.gold === "select").length,
+    reject: held.filter((row) => row.gold === "reject").length,
+    either: held.filter((row) => row.gold === "either").length,
+  };
+}
+
 /** A case's outcome: past the prefilter or not, and its scores; `available` false when it failed. */
 export interface SelectionThresholdCase {
   gold: SelectionGoldDecision;

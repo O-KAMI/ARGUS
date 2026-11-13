@@ -4,7 +4,7 @@
 // edge 交人工复核（hold），不再复判，所以也没有“缺第二次”的缺口。
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { replaySelectionDecision, selectionThresholdMetrics, type SelectionThresholdCase } from "../scripts/eval-selection-core.ts";
+import { heldResolutions, replaySelectionDecision, selectionThresholdMetrics, type SelectionMetricCase, type SelectionThresholdCase } from "../scripts/eval-selection-core.ts";
 import type { AnalysisRun } from "@aihot/backend/editorial/analyze";
 
 const scores = (values: number[], extra: Partial<NonNullable<AnalysisRun["scores"]>> = {}): AnalysisRun["scores"] =>
@@ -59,4 +59,17 @@ test("the learning sweep takes one call a case and reports the boundary it holds
   assert.equal(at60.decisive, 2, "hit and miss auto-decide; the edge does not");
   assert.equal(at60.fp, 0, "hit matches gold select; no false selection");
   assert.equal(at60.fn, 0, "miss matches gold reject; no false miss");
+});
+
+test("heldResolutions counts only the boundary the model held, by how humans resolved it", () => {
+  const cases: SelectionMetricCase[] = [
+    { gold: "select", decision: "hold" },
+    { gold: "reject", decision: "hold" },
+    { gold: "reject", decision: "hold" },
+    { gold: "either", decision: "hold" },
+    { gold: "select", decision: "select" }, // auto-decided, not a boundary hold
+    { gold: "reject", decision: null }, // failed, not a hold
+  ];
+  assert.deepEqual(heldResolutions(cases), { n: 4, select: 1, reject: 2, either: 1 });
+  assert.deepEqual(heldResolutions([]), { n: 0, select: 0, reject: 0, either: 0 });
 });

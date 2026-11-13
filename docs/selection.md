@@ -163,6 +163,32 @@ node --env-file=.env scripts/eval-selection.ts --track learning --sweep 40-90
 
 **两种东西永远不算校准证据**：模型给自己打标；上游 AIHOT 的旧精选口径。只有"这个部署里由人做出的决定"才算。
 
+### 人工确认回流：AI 提议、你批准
+
+边界档的人工确认不止改这一条的入选，还回流成校准评分标准的证据。整条回路是「人确认 → 对账 → AI 提议 → 人批准 → 生效」，**AI 永远只提议，主人批准才生效**，标准不会自行漂移：
+
+1. **人确认**：主人在后台"精选标注 → 待复核"里判边界档。`labelSelection` 立即改公开 `selected`，并追加一行 `selection_gold`（人工金标）。
+2. **对账**：`eval-selection.ts --track learning` 用生产同一套函数重放，报告的 `tracks.learning.heldResolutions` 给出"模型挂起的边界档、人工怎么判的"（精选 / 不精选 / 两可）。这是校准 `hit/edge/miss` 的核心信号：
+   - 多数被判**不精选** ⇒ `edge` 偏松，宜把这类往 `miss` 收；
+   - 多数被判**精选** ⇒ `edge` 偏紧，宜把这类往 `hit` 放；
+   - **各半** ⇒ 边界本身合理，保持 `hold`、只修明显的 FP/FN。
+3. **编 brief**（免费，不调模型）：`propose-rubric.ts` 把一次对账编成校准反馈——现行标准全文 + 自动决定指标 + 边界读法 + 判错与边界样本（正文摘录按 `caseId` 从金标关联）。指标与 FP/FN 都从报告的 `cases` 用 `selectionMetrics`/`heldResolutions` 现算，不依赖报告里可能过时的预聚合字段。
+   ```bash
+   node --env-file=.env scripts/propose-rubric.ts                 # 读最新的 selection-learning-*.json，写 .data/proposals/learning-brief-<ts>.md
+   node --env-file=.env scripts/propose-rubric.ts --report <eval.json> --model <name> --max-examples 20
+   ```
+4. **AI 提议**（付费一次，主人触发）：加 `--propose`，模型在 `PROPOSAL_SYSTEM` 约束下出一版**最小改动**的新标准，写成"待批提议" `.data/proposals/learning-rubric-<ts>.md`，**永不直接生效**。回执 `purpose=propose_rubric`（自由字符串，无需迁移）。硬约束：保留 kinds 表（11 类）、五个维度、噪声压制、输入安全边界、`{{siteName}}` 与"只返回 level/kinds 的 JSON"契约，只动判档边界与重要/噪声的例子。
+   ```bash
+   node --env-file=.env scripts/propose-rubric.ts --propose [--model <name>]
+   ```
+5. **人批准 → 生效**：主人审阅提议（理由 + 全文）后运行 `--apply`，才写入 `industry/prompts/selection-score-learning.md`。写入前先过**渲染校验**（`promptFromText`，与 worker 同一渲染器）：未知 `{{token}}` 或坏 include 会被拦下、**不写**。内容哈希变 ⇒ 新版本，之后的新资料按新标准判。
+   ```bash
+   node --env-file=.env scripts/propose-rubric.ts --apply .data/proposals/learning-rubric-<ts>.md
+   node --env-file=.env scripts/eval-selection.ts --track learning   # 复测，报告里的 promptVersion 即新版本
+   ```
+
+`.data/proposals/` 与 brief 都不进仓库（`.data/` 已 gitignore）。**生效只影响之后到达的资料**：存量不会因 `--apply` 自动重判（按哈希匹配重判是另一件事，见下节与 项目地图.md）。
+
 ### 改了信源的轨道之后
 
 打标记只影响之后到达的资料。`analyses` 里已有的行仍是旧轨道措辞与门槛判出来的，**不会自动重判**（历史判定永不回溯重写，回执与 `prompt_version` 保证可审计）。要让存量按新轨道生效：

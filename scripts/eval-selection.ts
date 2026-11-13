@@ -44,6 +44,7 @@ import { importSelectBenchRun } from "@aihot/backend/admin/selectbench";
 import { evalModels, pmap, positiveInt, safeReportNamePart, sampleCases, usageFor } from "./eval-tools.ts";
 import {
   GOLD_TRACKS,
+  heldResolutions,
   parseSelectionGoldJsonl,
   scoreCacheKey,
   selectionMetrics,
@@ -168,8 +169,8 @@ function mistakesOf(results: Outcome[]) {
     const gold = x.r.gold.decision;
     if (pred === null || gold === "either") continue;
     const stratum = x.r.samplingContext?.samplingStratum ?? null;
-    if (pred === "select" && gold === "reject") mistakes.push({ kind: "FP", track: x.track, title: x.r.material.title, score: shownScore(x.scores), stratum });
-    else if (pred === "reject" && gold === "select") mistakes.push({ kind: "FN", track: x.track, title: x.r.material.title, score: shownScore(x.scores), relevance: x.relevance, stratum });
+    if (pred === "select" && gold === "reject") mistakes.push({ kind: "FP", caseId: x.r.caseId, track: x.track, title: x.r.material.title, score: shownScore(x.scores), stratum });
+    else if (pred === "reject" && gold === "select") mistakes.push({ kind: "FN", caseId: x.r.caseId, track: x.track, title: x.r.material.title, score: shownScore(x.scores), relevance: x.relevance, stratum });
   }
   return mistakes;
 }
@@ -258,8 +259,10 @@ async function evaluate() {
       const [from, to] = goldSweep(track);
       const sweep = [];
       for (let t = from; t <= to; t += 2) sweep.push(selectionThresholdMetrics(cases, t));
-      perTrack[track] = { n: of.length, promptVersion: selectionPromptVersion(track), summary, sweep, mistakes: mistakesOf(of) };
+      const held = heldResolutions(of.map((x) => ({ gold: x.r.gold.decision, decision: decide(x) })));
+      perTrack[track] = { n: of.length, promptVersion: selectionPromptVersion(track), summary, sweep, heldResolutions: held, mistakes: mistakesOf(of) };
       console.log(`[${track}] ${model} ${JSON.stringify({ ...summary, promptVersion: selectionPromptVersion(track) })}`);
+      if (held.n) console.log(`  [${track}] 边界档人工复核结果：${held.n} 条 hold → 精选 ${held.select} · 不精选 ${held.reject} · 两可 ${held.either}（这是校准 hit/edge/miss 边界的信号）`);
       console.log(sweep.map((s) =>
         `  [${track}] t=${s.t} acc=${s.acc} completeAcc=${s.completeAcc} coverage=${s.coverage} P=${s.P} R=${s.R} F1=${s.F1} sel=${s.sel} fp=${s.fp} fn=${s.fn} gap=${s.gap} calls100=${s.calls100}`
       ).join("\n"));
