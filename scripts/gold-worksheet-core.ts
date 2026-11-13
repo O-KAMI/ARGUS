@@ -106,7 +106,7 @@ export interface WorksheetRow {
 export const TEXT_LIMIT = 700;
 
 /** One cell, RFC 4180: everything quoted, embedded quotes doubled, no bare newlines to confuse a reader. */
-const cell = (value: string | number) => `"${String(value).replace(/"/g, '""')}"`;
+export const cell = (value: string | number) => `"${String(value).replace(/"/g, '""')}"`;
 
 /** Flatten a post to one line: a cell that wraps makes a 128-row sheet unreadable in a spreadsheet. */
 export const flatten = (text: string) => text.replace(/\s+/g, " ").trim();

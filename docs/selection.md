@@ -189,6 +189,18 @@ node --env-file=.env scripts/eval-selection.ts --track learning --sweep 40-90
 
 `.data/proposals/` 与 brief 都不进仓库（`.data/` 已 gitignore）。**生效只影响之后到达的资料**：存量不会因 `--apply` 自动重判（按哈希匹配重判是另一件事，见下节与 项目地图.md）。
 
+#### 边界档批量标注：按内容类型抽样
+
+边界档积压几百篇时，逐条在后台确认太慢。`scripts/edge-worksheet.ts` 把待复核的 `edge` 按**内容类型**（`LEARNING_KINDS` 11 类）分组、每类抽几篇（默认 6，`--per-kind` 可调），写成一张 spreadsheet 填的 CSV，填完读回走**同一个** `labelSelection`（改公开 `selected` + 存 `selection_gold`，版本检查、审计、`selected_ledger` 一个不绕）。
+
+```bash
+node --env-file=.env scripts/edge-worksheet.ts --out .data/edge-worksheet.csv          # 抽样写空表
+node --env-file=.env scripts/edge-worksheet.ts --import .data/edge-worksheet.csv      # 干跑核对
+node --env-file=.env scripts/edge-worksheet.ts --import .data/edge-worksheet.csv --live  # 落库
+```
+
+与盲标表（`gold-worksheet.ts`，看不到模型判分、用来独立测门槛）相反，这张表**不盲**：显示类别与模型的推荐理由，因为主人是在**确认边界**、不是独立测量。类别作为分层 `edge:<kind>` 存进 `selection_gold.sampling_context`，于是 `propose-rubric.ts` 能按类别读"这一类人工怎么判"，把校准做成**每类一条规则**（哪类偏松往 miss 收、哪类偏紧往 hit 放），而不是全局挪一个门槛。只抽当前评分哈希、还没有人工决定（无 override、无 gold）的 `edge`；按 id 排序抽样，重跑同一库得到同一张表；行按类别轮转排列，只填前 N 行也覆盖每一类。
+
 ### 改了信源的轨道、或改了评分标准之后
 
 打标记 / 改措辞都只影响之后到达的资料。`analyses` 里已有的行仍是旧措辞与门槛判出来的，**不会自动重判**（历史判定永不回溯重写，回执与 `prompt_version` 保证可审计）。要让存量按新措辞生效，用同一个脚本，`--by` 选匹配方式：
