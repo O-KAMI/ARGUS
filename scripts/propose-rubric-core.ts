@@ -12,11 +12,14 @@ export interface RubricFeedback {
   metrics: { accuracy: number | null; fp: number; fn: number; held: number; reviewRate: number | null; decisive: number };
   held: { n: number; select: number; reject: number; either: number };
   mistakes: Array<{ kind: string; title: string; stratum: string | null; excerpt: string | null }>;
-  heldExamples: Array<{ title: string; gold: string; stratum: string | null; excerpt: string | null }>;
+  heldExamples: Array<{ title: string; gold: string; stratum: string | null; excerpt: string | null; reason?: string | null }>;
 }
 
-const caseLine = (c: { title: string; stratum: string | null; excerpt: string | null }, lead: string) =>
-  `- ${lead}「${c.title}」${c.stratum ? `（${c.stratum}）` : ""}${c.excerpt ? `\n  > ${c.excerpt.replace(/\s+/g, " ").slice(0, 240)}` : ""}`;
+const caseLine = (c: { title: string; stratum: string | null; excerpt: string | null; reason?: string | null }, lead: string) =>
+  `- ${lead}「${c.title}」${c.stratum ? `（${c.stratum}）` : ""}${c.reason ? ` 人工理由：${c.reason.replace(/\s+/g, " ").trim()}` : ""}${c.excerpt ? `\n  > ${c.excerpt.replace(/\s+/g, " ").slice(0, 240)}` : ""}`;
+
+/** The kind a boundary case was drawn from (`edge:<kind>`), or null for the blind score-pair strata. */
+const kindOf = (stratum: string | null) => (stratum?.startsWith("edge:") ? stratum.slice("edge:".length) : null);
 
 /**
  * The brief the proposal model reads: the rubric as it stands, the reconciliation numbers, the boundary
@@ -29,6 +32,23 @@ export function compileBrief(f: RubricFeedback): string {
     : f.held.reject > f.held.select ? `人工把多数边界档判为不精选（${f.held.reject}/${f.held.n}）：edge 偏松，宜把这类往 miss 收。`
       : f.held.select > f.held.reject ? `人工把多数边界档判为精选（${f.held.select}/${f.held.n}）：edge 偏紧，宜把这类往 hit 放。`
         : `人工对边界档精选与不精选各半（${f.held.select}/${f.held.reject}）：边界本身合理，宜保持 hold、只修明显的 FP/FN。`;
+  // The boundary cases drawn per content kind (`edge:<kind>`) are the evidence for a per-kind rule; the
+  // blind score-pair strata stay in the flat list below. Group the kind ones so a proposal can refine each
+  // kind's hit/edge/miss boundary on its own labels and reasons, not on one global tally.
+  const byKind = new Map<string, RubricFeedback["heldExamples"]>();
+  const other = f.heldExamples.filter((c) => {
+    const kind = kindOf(c.stratum);
+    if (kind === null) return true;
+    const list = byKind.get(kind) ?? [];
+    list.push(c);
+    byKind.set(kind, list);
+    return false;
+  });
+  const kindLines = [...byKind].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).flatMap(([kind, list]) => {
+    const sel = list.filter((c) => c.gold === "select").length;
+    const rej = list.filter((c) => c.gold === "reject").length;
+    return [`### ${kind}（精选 ${sel} · 不精选 ${rej}）`, ...list.map((c) => caseLine(c, `人工=${c.gold} `))];
+  });
   return [
     `# 学习轨评分标准校准反馈`,
     ``,
@@ -46,8 +66,11 @@ export function compileBrief(f: RubricFeedback): string {
     `## 判错的样本（FP=不该选却选了，FN=该选却没选）`,
     ...(f.mistakes.length ? f.mistakes.map((c) => caseLine(c, `${c.kind} `)) : ["（无）"]),
     ``,
+    `## 按内容类型的边界裁定（每类 hit/edge/miss 规则的证据）`,
+    ...(kindLines.length ? kindLines : ["（无）"]),
+    ``,
     `## 边界档样本与人工裁定`,
-    ...(f.heldExamples.length ? f.heldExamples.map((c) => caseLine(c, `人工=${c.gold} `)) : ["（无）"]),
+    ...(other.length ? other.map((c) => caseLine(c, `人工=${c.gold} `)) : ["（无）"]),
     ``,
     `## 当前评分标准全文`,
     ``,
@@ -74,6 +97,7 @@ export const PROPOSAL_SYSTEM = [
   "- 保留 {{siteName}} 占位符与「只返回 level 与 kinds 的合法 JSON」这一输出要求，一字不改其语义。",
   "- 只调整「什么算 hit/edge/miss」的判档边界与「什么算重要/什么算噪声」的例子，依据反馈里的证据，不要整篇重写。",
   "- 边界信号：人工把多数 hold 判为不精选就把 edge 往 miss 收，判为精选就往 hit 放，各半就保持 hold、只修明显 FP/FN。",
+  "- 「按内容类型的边界裁定」逐类给出人工怎么判及其理由：据此细化**该类**的判档边界与重要/噪声例子（如某类里「只是推荐/晒图/无实质」往 miss 收、「可复用做法/优秀资源/讲清机制」往 hit 放），逐类对应证据，kinds 表名称与结构不变。",
   "- 不引入来源名称、粉丝数、信源层级等输入里不提供的信息作为加分项；保持来源盲评。",
   "",
   "只返回合法 JSON：{\"rationale\":\"改动理由，逐条对应反馈里的证据\",\"rubric\":\"新标准全文（保留 {{siteName}} 与 JSON 契约）\"}。",

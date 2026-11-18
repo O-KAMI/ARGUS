@@ -36,6 +36,25 @@ test("compileBrief reads each boundary shape, including no held cases at all", (
   assert.match(none, /## 边界档样本与人工裁定\n（无）/);
 });
 
+test("compileBrief groups boundary cases per content kind, with the owner's reasons as evidence", () => {
+  const brief = compileBrief(feedback({
+    held: { n: 4, select: 3, reject: 1, either: 0 },
+    heldExamples: [
+      { title: "可复用玩法", gold: "select", stratum: "edge:skill_playbook", excerpt: "步骤", reason: "可以学习流程" },
+      { title: "晒图感叹", gold: "reject", stratum: "edge:skill_playbook", excerpt: "图", reason: "无实质" },
+      { title: "优秀课程", gold: "select", stratum: "edge:tutorial_explainer", excerpt: "课程", reason: "值得学习" },
+      { title: "盲标边界", gold: "select", stratum: "edge-keep", excerpt: "盲", reason: null },
+    ],
+  }));
+  assert.match(brief, /## 按内容类型的边界裁定/);
+  assert.match(brief, /### skill_playbook（精选 1 · 不精选 1）/);
+  assert.match(brief, /### tutorial_explainer（精选 1 · 不精选 0）/);
+  assert.match(brief, /人工理由：可以学习流程/);
+  // The blind score-pair stratum stays in the flat section, never grouped as a content kind.
+  assert.match(brief, /## 边界档样本与人工裁定\n- 人工=select 「盲标边界」（edge-keep）/);
+  assert.ok(!brief.includes("### edge-keep"), "a blind score-pair stratum is not a content kind");
+});
+
 test("a proposal round-trips even when the rubric itself contains triple-backtick code", () => {
   const rubric = [
     "你是 {{siteName}} 的学习价值判档器。",

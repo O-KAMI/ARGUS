@@ -97,6 +97,17 @@ async function main() {
   const summary = selectionMetrics(metricCases);
   const held = heldResolutions(metricCases);
   const heldCases = learningCases.filter((c) => c.decision === "hold");
+  // The owner's reason lives in the editorial override labelSelection wrote (selection_gold keeps only the
+  // decision); join it by article_id = caseId so the brief carries WHY each boundary case was decided.
+  const reasonRows = heldCases.length
+    ? await sql<{ article_id: string; reason: string }[]>`SELECT article_id, reason FROM editorial_overrides WHERE article_id = ANY(${heldCases.map((c) => c.caseId)})`
+    : [];
+  const reasonByCase = new Map(reasonRows.map((r) => [r.article_id, r.reason]));
+  const heldExample = (c: (typeof heldCases)[number]) => ({ title: c.title, gold: c.gold, stratum: c.stratum, excerpt: excerptOf(c.caseId), reason: reasonByCase.get(c.caseId) ?? null });
+  // Per-kind boundary cases are this round's calibration input: carry them all. The blind score-pair strata
+  // stay a capped flat list, as before.
+  const kindHeld = heldCases.filter((c) => c.stratum?.startsWith("edge:")).map(heldExample);
+  const otherHeld = heldCases.filter((c) => !c.stratum?.startsWith("edge:")).slice(0, maxExamples).map(heldExample);
   // FP/FN straight from the cases (the report's atomic truth), so each carries a caseId to join its excerpt.
   const mistakes = learningCases.flatMap((c) => {
     const kind = c.decision === "select" && c.gold === "reject" ? "FP" : c.decision === "reject" && c.gold === "select" ? "FN" : null;
@@ -108,7 +119,7 @@ async function main() {
     metrics: { accuracy: summary.accuracy, fp: summary.fp, fn: summary.fn, held: summary.held, reviewRate: summary.reviewRate, decisive: summary.decisive },
     held,
     mistakes: mistakes.slice(0, maxExamples),
-    heldExamples: heldCases.slice(0, maxExamples).map((c) => ({ title: c.title, gold: c.gold, stratum: c.stratum, excerpt: excerptOf(c.caseId) })),
+    heldExamples: [...kindHeld, ...otherHeld],
   };
 
   const outDir = path.resolve(REPO_ROOT, values["out-dir"]!);
